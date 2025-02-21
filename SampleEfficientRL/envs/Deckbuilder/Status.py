@@ -22,6 +22,8 @@ class StatusUIDs(Enum):
     FRAIL = 3
     POISON = 4
     BLOCK = 5
+    RITUAL = 6
+    STRENGTH = 7
 
 
 StatusesOrder: List[StatusUIDs] = [
@@ -30,6 +32,8 @@ StatusesOrder: List[StatusUIDs] = [
     StatusUIDs.FRAIL,
     StatusUIDs.BLOCK,
     StatusUIDs.POISON,
+    StatusUIDs.RITUAL,
+    StatusUIDs.STRENGTH,
 ]
 
 # env, amount, action
@@ -43,5 +47,5 @@ class Status(ABC):
         self.status_uid = status_uid
 
     @abstractmethod
-    def get_effects(self) -> Dict[EffectTriggerPoint, EffectCallback]:
+    def get_effects(self) -> Dict[EffectTriggerPoint, StatusEffectCallback]:
         pass
