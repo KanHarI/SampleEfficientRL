@@ -7,4 +7,5 @@ from SampleEfficientRL.Envs.Env import Env
 
 class DeckbuilderSingleBattleEnv(Env):
     def __init__(self, player: Player, opponents: List[Opponent]):
-        pass
+        self.player = player
+        self.opponents = opponents
