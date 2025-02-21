@@ -3,13 +3,12 @@ from enum import Enum
 from typing import List, Optional
 
 from SampleEfficientRL.Envs.Deckbuilder.Entity import Entity
-from SampleEfficientRL.Envs.Deckbuilder.EnvAction import (EnvAction,
-                                                          EnvActionType)
 from SampleEfficientRL.Envs.Deckbuilder.EnvActions.Attack import Attack
 from SampleEfficientRL.Envs.Deckbuilder.Opponent import Opponent
 from SampleEfficientRL.Envs.Deckbuilder.Player import Player
 from SampleEfficientRL.Envs.Deckbuilder.Status import (EffectTriggerPoint,
-                                                       StatusesOrder)
+                                                       Status, StatusesOrder,
+                                                       StatusUIDs)
 from SampleEfficientRL.Envs.Env import Env
 
 
@@ -17,6 +16,16 @@ from SampleEfficientRL.Envs.Env import Env
 class EntityDescriptor:
     is_player: bool
     enemy_idx: Optional[int]
+
+
+class EnvActionType(Enum):
+    ATTACK = "attack"
+
+
+@dataclass
+class EnvAction:
+    env_action_type: EnvActionType
+    entity_descriptor: EntityDescriptor
 
 
 class EnvEvents(Enum):
@@ -84,9 +93,7 @@ class DeckbuilderSingleBattleEnv(Env):
     def attack_entity(self, entity_descriptor: EntityDescriptor, amount: int):
         action = Attack(
             env_action_type=EnvActionType.ATTACK,
-            action_on_player=entity_descriptor.is_player,
-            action_on_enemy=not entity_descriptor.is_player,
-            enemy_idx=entity_descriptor.enemy_idx,
+            entity_descriptor=entity_descriptor,
             damage=amount,
         )
         action = self.apply_action_callbacks(
@@ -95,3 +102,15 @@ class DeckbuilderSingleBattleEnv(Env):
 
         if action is not None:
             self.reduce_entity_hp(entity_descriptor, action.damage)
+
+    def reset_entity_status(
+        self, entity_descriptor: EntityDescriptor, status_uid: StatusUIDs
+    ):
+        entity = self.find_entity_by_descriptor(entity_descriptor)
+        entity.reset_status(status_uid)
+
+    def apply_status_to_entity(
+        self, entity_descriptor: EntityDescriptor, status: Status, amount: int
+    ):
+        entity = self.find_entity_by_descriptor(entity_descriptor)
+        entity.apply_status(status, amount)

@@ -17,7 +17,11 @@ class Entity:
     def apply_status(self, status: Status, amount: int) -> None:
         if status.status_uid in self.statuses:
             status, old_amount = self.statuses[status.status_uid]
-            self.statuses[status.status_uid] = (status, old_amount + amount)
+            new_amount = old_amount + amount
+            if new_amount > 0:
+                self.statuses[status.status_uid] = (status, new_amount)
+            else:
+                del self.statuses[status.status_uid]
         else:
             self.statuses[status.status_uid] = (status, amount)
 

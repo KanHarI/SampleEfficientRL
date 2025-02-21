@@ -3,8 +3,10 @@ from typing import Dict, Optional
 from SampleEfficientRL.Envs.Deckbuilder.Card import (Card, CardEffectCallback,
                                                      CardEffectTrigger,
                                                      CardType, CardUIDs)
-from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import \
-    DeckbuilderSingleBattleEnv
+from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
+    DeckbuilderSingleBattleEnv, EntityDescriptor)
+
+STRIKE_DAMAGE = 6
 
 
 class Strike(Card):
@@ -21,4 +23,7 @@ class Strike(Card):
         if enemy_idx is None:
             raise ValueError("Enemy IDs are required for Strike")
 
-        env.attack_enemy(enemy_idx, 6)
+        env.attack_entity(
+            entity_descriptor=EntityDescriptor(is_player=False, enemy_idx=enemy_idx),
+            amount=STRIKE_DAMAGE,
+        )

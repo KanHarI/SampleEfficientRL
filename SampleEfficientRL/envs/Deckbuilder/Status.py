@@ -2,9 +2,9 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Callable, Dict, List, Optional
 
-from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import \
-    DeckbuilderSingleBattleEnv
-from SampleEfficientRL.Envs.Deckbuilder.EnvAction import EnvAction
+from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
+    DeckbuilderSingleBattleEnv, EnvAction)
+from SampleEfficientRL.Envs.Deckbuilder.EnvActions.Attack import Attack
 
 
 class EffectTriggerPoint(Enum):

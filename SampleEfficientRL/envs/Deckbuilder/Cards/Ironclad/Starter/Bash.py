@@ -1,10 +1,11 @@
 from typing import Dict, Optional
 
-from SampleEfficientRL.Envs.Deckbuilder.Card import (Card, CardEffectTrigger,
+from SampleEfficientRL.Envs.Deckbuilder.Card import (Card, CardEffectCallback,
+                                                     CardEffectTrigger,
                                                      CardType, CardUIDs)
-from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import \
-    DeckbuilderSingleBattleEnv
-from SampleEfficientRL.Envs.Deckbuilder.EffectCallback import EffectCallback
+from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
+    DeckbuilderSingleBattleEnv, EntityDescriptor)
+from SampleEfficientRL.Envs.Deckbuilder.Status import StatusUIDs
 from SampleEfficientRL.Envs.Deckbuilder.Statuses.Vulnerable import Vulnerable
 
 BASH_CARD_DAMAGE = 8
@@ -15,7 +16,7 @@ class Bash(Card):
     def __init__(self):
         super().__init__(card_type=CardType.ATTACK, cost=2, card_uid=CardUIDs.BASH)
 
-    def get_effects(self) -> Dict[CardEffectTrigger, EffectCallback]:
+    def get_effects(self) -> Dict[CardEffectTrigger, CardEffectCallback]:
         return {CardEffectTrigger.ON_PLAY: Bash.on_play}
 
     @staticmethod
@@ -24,6 +25,16 @@ class Bash(Card):
     ) -> None:
         if enemy_idx is None:
             raise ValueError("Enemy IDs are required for Bash")
-
-        env.deal_damage_to_enemy(enemy_idx, BASH_CARD_DAMAGE)
-        env.apply_status_to_enemy(enemy_idx, Vulnerable, BASH_AMOUNT_OF_VULNERABLE)
+        num_opponents_before_attack = env.get_num_opponents()
+        env.attack_entity(
+            entity_descriptor=EntityDescriptor(is_player=False, enemy_idx=enemy_idx),
+            amount=BASH_CARD_DAMAGE,
+        )
+        if num_opponents_before_attack == env.get_num_opponents():
+            env.apply_status_to_entity(
+                entity_descriptor=EntityDescriptor(
+                    is_player=False, enemy_idx=enemy_idx
+                ),
+                status=Vulnerable(),
+                amount=BASH_AMOUNT_OF_VULNERABLE,
+            )
