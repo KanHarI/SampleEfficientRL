@@ -6,6 +6,7 @@ setup(
     packages=find_packages(),
     install_requires=[
         "chess",
+        "numpy",
     ],
     extras_require={
         "dev": [
