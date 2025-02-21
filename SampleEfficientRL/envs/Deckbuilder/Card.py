@@ -1,9 +1,10 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, Optional
+from typing import Callable, Dict, Optional
 
-from SampleEfficientRL.Envs.Deckbuilder.EffectCallback import EffectCallback
+from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import \
+    DeckbuilderSingleBattleEnv
 
 
 class CardType(Enum):
@@ -129,6 +130,10 @@ class CardTargetingInfo:
     targeting_type: Optional[TargetType]
 
 
+# Parameters: env, target_idx (if applicable)
+CardEffectCallback = Callable[[DeckbuilderSingleBattleEnv, Optional[int]], None]
+
+
 class Card(ABC):
     def __init__(self, card_type: CardType, cost: int, card_uid: CardUIDs):
         self.card_type = card_type
@@ -136,7 +141,7 @@ class Card(ABC):
         self.card_uid = card_uid
 
     @abstractmethod
-    def get_effects(self) -> Dict[CardEffectTrigger, EffectCallback]:
+    def get_effects(self) -> Dict[CardEffectTrigger, CardEffectCallback]:
         pass
 
     @abstractmethod
