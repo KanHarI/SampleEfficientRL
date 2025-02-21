@@ -1,8 +1,7 @@
-from typing import Dict, List, Tuple
+from typing import List
 
 from SampleEfficientRL.Envs.Deckbuilder.Card import Card
 from SampleEfficientRL.Envs.Deckbuilder.Entity import Entity
-from SampleEfficientRL.Envs.Deckbuilder.Status import Status, StatusUIDs
 
 
 class Player(Entity):

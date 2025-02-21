@@ -1,10 +1,16 @@
 from typing import Dict, Optional
 
-from SampleEfficientRL.Envs.Deckbuilder.Card import (Card, CardEffectCallback,
-                                                     CardEffectTrigger,
-                                                     CardType, CardUIDs)
+from SampleEfficientRL.Envs.Deckbuilder.Card import (
+    Card,
+    CardEffectCallback,
+    CardEffectTrigger,
+    CardType,
+    CardUIDs,
+)
 from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
-    DeckbuilderSingleBattleEnv, EntityDescriptor)
+    DeckbuilderSingleBattleEnv,
+    EntityDescriptor,
+)
 
 STRIKE_DAMAGE = 6
 

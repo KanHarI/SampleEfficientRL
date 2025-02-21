@@ -1,11 +1,16 @@
 from typing import Dict, Optional
 
-from SampleEfficientRL.Envs.Deckbuilder.Card import (Card, CardEffectCallback,
-                                                     CardEffectTrigger,
-                                                     CardType, CardUIDs)
+from SampleEfficientRL.Envs.Deckbuilder.Card import (
+    Card,
+    CardEffectCallback,
+    CardEffectTrigger,
+    CardType,
+    CardUIDs,
+)
 from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
-    DeckbuilderSingleBattleEnv, EntityDescriptor)
-from SampleEfficientRL.Envs.Deckbuilder.Status import StatusUIDs
+    DeckbuilderSingleBattleEnv,
+    EntityDescriptor,
+)
 from SampleEfficientRL.Envs.Deckbuilder.Statuses.Block import Block
 
 DEFEND_BLOCK_AMOUNT = 5

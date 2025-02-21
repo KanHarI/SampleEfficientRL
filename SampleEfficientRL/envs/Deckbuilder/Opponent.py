@@ -1,8 +1,6 @@
 from enum import Enum
-from typing import Dict, Tuple
 
 from SampleEfficientRL.Envs.Deckbuilder.Entity import Entity
-from SampleEfficientRL.Envs.Deckbuilder.Status import Status, StatusUIDs
 
 
 class NextMove(Enum):

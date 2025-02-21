@@ -3,8 +3,9 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, Dict, Optional
 
-from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import \
-    DeckbuilderSingleBattleEnv
+from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
+    DeckbuilderSingleBattleEnv,
+)
 
 
 class CardType(Enum):

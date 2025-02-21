@@ -3,8 +3,9 @@ from enum import Enum
 from typing import Callable, Dict, List, Optional
 
 from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
-    DeckbuilderSingleBattleEnv, EnvAction)
-from SampleEfficientRL.Envs.Deckbuilder.EnvActions.Attack import Attack
+    DeckbuilderSingleBattleEnv,
+    EnvAction,
+)
 
 
 class EffectTriggerPoint(Enum):

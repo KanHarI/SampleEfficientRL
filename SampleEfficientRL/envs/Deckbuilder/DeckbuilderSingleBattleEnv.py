@@ -6,9 +6,12 @@ from SampleEfficientRL.Envs.Deckbuilder.Entity import Entity
 from SampleEfficientRL.Envs.Deckbuilder.EnvActions.Attack import Attack
 from SampleEfficientRL.Envs.Deckbuilder.Opponent import Opponent
 from SampleEfficientRL.Envs.Deckbuilder.Player import Player
-from SampleEfficientRL.Envs.Deckbuilder.Status import (EffectTriggerPoint,
-                                                       Status, StatusesOrder,
-                                                       StatusUIDs)
+from SampleEfficientRL.Envs.Deckbuilder.Status import (
+    EffectTriggerPoint,
+    Status,
+    StatusesOrder,
+    StatusUIDs,
+)
 from SampleEfficientRL.Envs.Env import Env
 
 

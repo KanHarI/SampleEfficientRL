@@ -5,7 +5,7 @@ echo "Black formatting:"
 python -m black SampleEfficientRL/
 
 echo "Isort formatting:"
-python -m isort SampleEfficientRL/
+python -m isort --profile black SampleEfficientRL/
 
 echo "Installing package:"
 pip install -e .
