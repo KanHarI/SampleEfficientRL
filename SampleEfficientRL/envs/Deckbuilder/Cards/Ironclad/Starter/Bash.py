@@ -6,6 +6,7 @@ from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import \
     DeckbuilderSingleBattleEnv
 from SampleEfficientRL.Envs.Deckbuilder.EffectCallback import EffectCallback
 from SampleEfficientRL.Envs.Deckbuilder.Status import StatusUIDs
+from SampleEfficientRL.Envs.Deckbuilder.Statuses.Vulnerable import Vulnerable
 
 BASH_CARD_DAMAGE = 8
 BASH_AMOUNT_OF_VULNERABLE = 2

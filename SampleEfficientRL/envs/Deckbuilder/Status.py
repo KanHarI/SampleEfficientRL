@@ -3,6 +3,7 @@ from enum import Enum
 from typing import Dict
 from dataclasses import dataclass
 
+from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import DeckbuilderSingleBattleEnv
 from SampleEfficientRL.Envs.Deckbuilder.EffectCallback import EffectCallback
 
 class EffectTriggerPoint(Enum):
@@ -18,12 +19,13 @@ class StatusUIDs(Enum):
     WEAK = 2
     FRAIL = 3
     POISON = 4
+    BLOCK = 5
 
 
 class Status(ABC):
     def __init__(self, status_uid: StatusUIDs):
         self.status_uid = status_uid
-
+    
     @abstractmethod
     def get_effects(self) -> Dict[EffectTriggerPoint, EffectCallback]:
         pass
