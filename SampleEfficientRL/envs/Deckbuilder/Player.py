@@ -4,9 +4,9 @@ from typing import List
 from SampleEfficientRL.Envs.Deckbuilder.Card import Card
 from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
     DeckbuilderSingleBattleEnv,
-    EntityDescriptor,
 )
 from SampleEfficientRL.Envs.Deckbuilder.Entity import Entity
+from SampleEfficientRL.Envs.Deckbuilder.EnvAction import EntityDescriptor
 from SampleEfficientRL.Envs.Deckbuilder.Statuses.HandDrawer import HandDrawer
 
 HAND_SIZE = 5

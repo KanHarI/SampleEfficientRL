@@ -10,8 +10,8 @@ from SampleEfficientRL.Envs.Deckbuilder.Card import (
 )
 from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
     DeckbuilderSingleBattleEnv,
-    EntityDescriptor,
 )
+from SampleEfficientRL.Envs.Deckbuilder.EnvAction import EntityDescriptor
 from SampleEfficientRL.Envs.Deckbuilder.Statuses.Block import Block
 
 DEFEND_BLOCK_AMOUNT = 5

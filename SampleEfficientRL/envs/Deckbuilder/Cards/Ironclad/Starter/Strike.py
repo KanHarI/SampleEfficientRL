@@ -11,8 +11,8 @@ from SampleEfficientRL.Envs.Deckbuilder.Card import (
 )
 from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
     DeckbuilderSingleBattleEnv,
-    EntityDescriptor,
 )
+from SampleEfficientRL.Envs.Deckbuilder.EnvAction import EntityDescriptor
 
 STRIKE_DAMAGE = 6
 

@@ -1,9 +1,13 @@
-from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, cast
 
+import SampleEfficientRL.Envs.Deckbuilder.EnvActions.Attack as AttackModule
 from SampleEfficientRL.Envs.Deckbuilder.Entity import Entity
-from SampleEfficientRL.Envs.Deckbuilder.EnvActions.Attack import Attack
+from SampleEfficientRL.Envs.Deckbuilder.EnvAction import (
+    EntityDescriptor,
+    EnvAction,
+    EnvActionType,
+)
 from SampleEfficientRL.Envs.Deckbuilder.EnvActions.EndOfTurn import EndOfTurn
 from SampleEfficientRL.Envs.Deckbuilder.EnvActions.StartOfTurn import StartOfTurn
 from SampleEfficientRL.Envs.Deckbuilder.Opponent import Opponent
@@ -15,24 +19,6 @@ from SampleEfficientRL.Envs.Deckbuilder.Status import (
     StatusUIDs,
 )
 from SampleEfficientRL.Envs.Env import Env
-
-
-@dataclass
-class EntityDescriptor:
-    is_player: bool
-    enemy_idx: Optional[int] = None
-
-
-class EnvActionType(Enum):
-    ATTACK = "attack"
-    START_OF_TURN = "start_of_turn"
-    END_OF_TURN = "end_of_turn"
-
-
-@dataclass
-class EnvAction:
-    env_action_type: EnvActionType
-    entity_descriptor: EntityDescriptor
 
 
 class EnvEvents(Enum):
@@ -119,7 +105,7 @@ class DeckbuilderSingleBattleEnv(Env[None, None]):
         return action
 
     def attack_entity(self, entity_descriptor: EntityDescriptor, amount: int) -> None:
-        action: EnvAction | None = Attack(
+        action: EnvAction | None = AttackModule.Attack(
             env_action_type=EnvActionType.ATTACK,
             entity_descriptor=entity_descriptor,
             damage=amount,
@@ -129,7 +115,7 @@ class DeckbuilderSingleBattleEnv(Env[None, None]):
         )
 
         if action is not None:
-            attack_action = cast(Attack, action)
+            attack_action = cast(AttackModule.Attack, action)
             self.reduce_entity_hp(entity_descriptor, attack_action.damage)
 
     def reset_entity_status(
@@ -199,3 +185,12 @@ class DeckbuilderSingleBattleEnv(Env[None, None]):
                     EntityDescriptor(is_player=False, enemy_idx=idx),
                     EffectTriggerPoint.ON_END_OF_TURN,
                 )
+
+    def reset(self) -> None:
+        pass
+
+    def step(self, action: None) -> None:
+        pass
+
+    def observe(self) -> None:
+        pass

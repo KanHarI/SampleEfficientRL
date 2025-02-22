@@ -1,9 +1,13 @@
-from typing import Dict, Tuple
+from typing import TYPE_CHECKING, Dict, Tuple
 
-from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
-    DeckbuilderSingleBattleEnv,
-)
 from SampleEfficientRL.Envs.Deckbuilder.Status import Status, StatusUIDs
+
+if TYPE_CHECKING:
+    from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
+        DeckbuilderSingleBattleEnv,
+    )
+else:
+    DeckbuilderSingleBattleEnv = None
 
 
 class Entity:

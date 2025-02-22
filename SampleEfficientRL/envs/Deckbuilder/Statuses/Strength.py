@@ -2,9 +2,8 @@ from typing import Dict, Optional, cast
 
 from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
     DeckbuilderSingleBattleEnv,
-    EnvAction,
-    EnvActionType,
 )
+from SampleEfficientRL.Envs.Deckbuilder.EnvAction import EnvAction, EnvActionType
 from SampleEfficientRL.Envs.Deckbuilder.EnvActions.Attack import Attack
 from SampleEfficientRL.Envs.Deckbuilder.Status import (
     EffectTriggerPoint,

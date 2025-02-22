@@ -1,11 +1,11 @@
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
 from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
     DeckbuilderSingleBattleEnv,
-    EnvAction,
 )
+from SampleEfficientRL.Envs.Deckbuilder.EnvAction import EnvAction
 
 
 class EffectTriggerPoint(Enum):
@@ -39,10 +39,13 @@ StatusesOrder: List[StatusUIDs] = [
     StatusUIDs.HAND_DRAWER,
 ]
 
-# env, amount, action
-StatusEffectCallback = Callable[
-    [DeckbuilderSingleBattleEnv, int, EnvAction], Optional[EnvAction]
-]
+
+if TYPE_CHECKING:  # env, amount, action
+    StatusEffectCallback = Callable[
+        [DeckbuilderSingleBattleEnv, int, EnvAction], Optional[EnvAction]
+    ]
+else:
+    StatusEffectCallback = Callable[[], None]
 
 
 class Status(ABC):

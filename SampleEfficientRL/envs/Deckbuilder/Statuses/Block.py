@@ -2,6 +2,8 @@ from typing import Dict, Optional, cast
 
 from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
     DeckbuilderSingleBattleEnv,
+)
+from SampleEfficientRL.Envs.Deckbuilder.EnvAction import (
     EnvAction,
     EnvActionType,
 )

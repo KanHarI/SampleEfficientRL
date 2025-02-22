@@ -1,6 +1,4 @@
-from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
-    DeckbuilderSingleBattleEnv,
-)
+import SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv as DeckbuilderSingleBattleEnvModule
 from SampleEfficientRL.Envs.Deckbuilder.Decks.create_starter_ironclad_deck import (
     create_starter_ironclad_deck,
 )
@@ -11,7 +9,9 @@ IRONCLAD_STARTING_HP = 80
 IRONCLAD_STARTING_ENERGY = 3
 
 
-class IroncladStarterVsCultist(DeckbuilderSingleBattleEnv):
+class IroncladStarterVsCultist(
+    DeckbuilderSingleBattleEnvModule.DeckbuilderSingleBattleEnv
+):
     def __init__(self) -> None:
         super().__init__()
         self.set_player(

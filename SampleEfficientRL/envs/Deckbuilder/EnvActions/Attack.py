@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import EnvAction
+from SampleEfficientRL.Envs.Deckbuilder.EnvAction import EnvAction
 
 
 @dataclass

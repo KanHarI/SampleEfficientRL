@@ -4,9 +4,9 @@ from typing import Optional
 
 from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
     DeckbuilderSingleBattleEnv,
-    EntityDescriptor,
 )
 from SampleEfficientRL.Envs.Deckbuilder.Entity import Entity
+from SampleEfficientRL.Envs.Deckbuilder.EnvAction import EntityDescriptor
 from SampleEfficientRL.Envs.Deckbuilder.Statuses.Ritual import Ritual
 
 
