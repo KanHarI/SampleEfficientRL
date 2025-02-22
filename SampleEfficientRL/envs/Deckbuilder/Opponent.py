@@ -1,10 +1,12 @@
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
-    DeckbuilderSingleBattleEnv,
-)
+if TYPE_CHECKING:
+    from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
+        DeckbuilderSingleBattleEnv,
+    )
+
 from SampleEfficientRL.Envs.Deckbuilder.Entity import Entity
 from SampleEfficientRL.Envs.Deckbuilder.EnvAction import EntityDescriptor
 from SampleEfficientRL.Envs.Deckbuilder.Statuses.Ritual import Ritual
@@ -28,7 +30,7 @@ class NextMove(Enum):
 class Opponent(ABC, Entity):
     def __init__(
         self,
-        env: DeckbuilderSingleBattleEnv,
+        env: "DeckbuilderSingleBattleEnv",
         opponent_type_uid: OpponentTypeUIDs,
         max_health: int,
     ):

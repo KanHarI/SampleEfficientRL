@@ -1,8 +1,10 @@
-from typing import Dict, Optional
+from typing import TYPE_CHECKING, Dict, Optional
 
-from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
-    DeckbuilderSingleBattleEnv,
-)
+if TYPE_CHECKING:
+    from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
+        DeckbuilderSingleBattleEnv,
+    )
+
 from SampleEfficientRL.Envs.Deckbuilder.EnvAction import EnvAction
 from SampleEfficientRL.Envs.Deckbuilder.Status import (
     EffectTriggerPoint,
@@ -22,7 +24,7 @@ class Ritual(Status):
 
     @staticmethod
     def on_start_of_turn(
-        env: DeckbuilderSingleBattleEnv, amount: int, action: EnvAction
+        env: "DeckbuilderSingleBattleEnv", amount: int, action: EnvAction
     ) -> Optional[EnvAction]:
         env.apply_status_to_entity(action.entity_descriptor, Strength(), amount)
         return action

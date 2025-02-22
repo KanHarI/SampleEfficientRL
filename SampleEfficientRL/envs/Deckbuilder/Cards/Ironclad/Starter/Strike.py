@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import TYPE_CHECKING, Dict, Optional
 
 from SampleEfficientRL.Envs.Deckbuilder.Card import (
     Card,
@@ -9,9 +9,12 @@ from SampleEfficientRL.Envs.Deckbuilder.Card import (
     CardUIDs,
     TargetType,
 )
-from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
-    DeckbuilderSingleBattleEnv,
-)
+
+if TYPE_CHECKING:
+    from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
+        DeckbuilderSingleBattleEnv,
+    )
+
 from SampleEfficientRL.Envs.Deckbuilder.EnvAction import EntityDescriptor
 
 STRIKE_DAMAGE = 6
@@ -26,7 +29,7 @@ class Strike(Card):
 
     @staticmethod
     def on_play(
-        env: DeckbuilderSingleBattleEnv, enemy_idx: Optional[int] = None
+        env: "DeckbuilderSingleBattleEnv", enemy_idx: Optional[int] = None
     ) -> None:
         if enemy_idx is None:
             raise ValueError("Enemy IDs are required for Strike")

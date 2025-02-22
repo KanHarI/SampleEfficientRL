@@ -1,11 +1,12 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, Dict, Optional
+from typing import TYPE_CHECKING, Callable, Dict, Optional
 
-from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
-    DeckbuilderSingleBattleEnv,
-)
+if TYPE_CHECKING:
+    from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
+        DeckbuilderSingleBattleEnv,
+    )
 
 
 class CardType(Enum):
@@ -132,7 +133,7 @@ class CardTargetingInfo:
 
 
 # Parameters: env, target_idx (if applicable)
-CardEffectCallback = Callable[[DeckbuilderSingleBattleEnv, Optional[int]], None]
+CardEffectCallback = Callable[["DeckbuilderSingleBattleEnv", Optional[int]], None]
 
 
 class Card(ABC):

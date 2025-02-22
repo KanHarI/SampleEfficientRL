@@ -1,8 +1,9 @@
-from typing import Dict, Optional
+from typing import TYPE_CHECKING, Dict, Optional
 
-from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
-    DeckbuilderSingleBattleEnv,
-)
+if TYPE_CHECKING:
+    from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
+        DeckbuilderSingleBattleEnv,
+    )
 from SampleEfficientRL.Envs.Deckbuilder.EnvAction import EnvAction
 from SampleEfficientRL.Envs.Deckbuilder.Status import (
     EffectTriggerPoint,
@@ -24,7 +25,7 @@ class HandDrawer(Status):
 
     @staticmethod
     def on_start_of_turn(
-        env: DeckbuilderSingleBattleEnv, amount: int, action: EnvAction
+        env: "DeckbuilderSingleBattleEnv", amount: int, action: EnvAction
     ) -> Optional[EnvAction]:
         if action.entity_descriptor.is_player is False:
             raise ValueError("HandDrawer status can only be applied to the player")
@@ -34,7 +35,7 @@ class HandDrawer(Status):
 
     @staticmethod
     def on_end_of_turn(
-        env: DeckbuilderSingleBattleEnv, amount: int, action: EnvAction
+        env: "DeckbuilderSingleBattleEnv", amount: int, action: EnvAction
     ) -> Optional[EnvAction]:
         if action.entity_descriptor.is_player is False:
             raise ValueError("HandDrawer status can only be applied to the player")

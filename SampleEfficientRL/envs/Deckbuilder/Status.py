@@ -2,9 +2,10 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
-from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
-    DeckbuilderSingleBattleEnv,
-)
+if TYPE_CHECKING:
+    from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
+        DeckbuilderSingleBattleEnv,
+    )
 from SampleEfficientRL.Envs.Deckbuilder.EnvAction import EnvAction
 
 
@@ -42,7 +43,7 @@ StatusesOrder: List[StatusUIDs] = [
 
 if TYPE_CHECKING:  # env, amount, action
     StatusEffectCallback = Callable[
-        [DeckbuilderSingleBattleEnv, int, EnvAction], Optional[EnvAction]
+        ["DeckbuilderSingleBattleEnv", int, EnvAction], Optional[EnvAction]
     ]
 else:
     StatusEffectCallback = Callable[[], None]

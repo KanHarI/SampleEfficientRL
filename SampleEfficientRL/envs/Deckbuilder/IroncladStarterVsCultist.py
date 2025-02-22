@@ -14,12 +14,12 @@ class IroncladStarterVsCultist(
 ):
     def __init__(self) -> None:
         super().__init__()
-        self.set_player(
-            Player(
-                self,
-                create_starter_ironclad_deck(),
-                IRONCLAD_STARTING_HP,
-                IRONCLAD_STARTING_ENERGY,
-            )
+        player = Player(
+            self,
+            create_starter_ironclad_deck(),
+            IRONCLAD_STARTING_HP,
+            IRONCLAD_STARTING_ENERGY,
         )
+        self.set_player(player)
+        player.register_player(self)
         self.set_opponents([FixedHpCultist(self)])

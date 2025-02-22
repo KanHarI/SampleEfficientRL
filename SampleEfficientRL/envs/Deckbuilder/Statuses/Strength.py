@@ -1,8 +1,10 @@
-from typing import Dict, Optional, cast
+from typing import TYPE_CHECKING, Dict, Optional, cast
 
-from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
-    DeckbuilderSingleBattleEnv,
-)
+if TYPE_CHECKING:
+    from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
+        DeckbuilderSingleBattleEnv,
+    )
+
 from SampleEfficientRL.Envs.Deckbuilder.EnvAction import EnvAction, EnvActionType
 from SampleEfficientRL.Envs.Deckbuilder.EnvActions.Attack import Attack
 from SampleEfficientRL.Envs.Deckbuilder.Status import (
@@ -22,7 +24,7 @@ class Strength(Status):
 
     @staticmethod
     def on_attack(
-        env: DeckbuilderSingleBattleEnv, amount: int, action: EnvAction
+        env: "DeckbuilderSingleBattleEnv", amount: int, action: EnvAction
     ) -> Optional[EnvAction]:
         if action.env_action_type != EnvActionType.ATTACK:
             raise ValueError(

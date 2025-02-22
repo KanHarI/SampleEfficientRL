@@ -3,6 +3,6 @@ from SampleEfficientRL.Envs.Deckbuilder.IroncladStarterVsCultist import (
 )
 
 
-def battle_turn_one_test() -> None:
+def test_battle_turn_one() -> None:
     env = IroncladStarterVsCultist()
     env.reset()
