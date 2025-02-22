@@ -16,8 +16,8 @@ HAND_SIZE = 5
 
 
 class Player(Entity):
-    hand: List[Card]
-    draw_pile: List[Card]
+    hand: List[Card] = []
+    draw_pile: List[Card] = []
     discard_pile: List[Card]
 
     def __init__(
@@ -28,6 +28,7 @@ class Player(Entity):
         max_energy: int,
     ):
         self.deck = starting_deck
+        self.discard_pile = starting_deck
         self.max_energy = max_energy
         self.energy = 0
         super().__init__(env, max_health)
