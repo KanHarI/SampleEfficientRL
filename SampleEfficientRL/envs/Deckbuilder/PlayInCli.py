@@ -69,13 +69,6 @@ def player_turn(env: DeckbuilderSingleBattleEnv) -> str:
 
     while True:
         print_state(env)
-        # Check energy and hand
-        if player.energy <= 0:
-            print("You have no energy left this turn.")
-            break
-        if not player.hand:
-            print("Your hand is empty.")
-            break
 
         user_input = input(
             "Enter card index to play or type 'end' or 'e' to finish turn, 'quit' or 'q' to quit: "
@@ -98,19 +91,15 @@ def player_turn(env: DeckbuilderSingleBattleEnv) -> str:
         card = player.hand[index]
         if player.energy < card.cost:
             print(
-                f"Not enough energy to play this card. Card cost is {card_cost} and you have {player.energy} energy."
+                f"Not enough energy to play this card. Card cost is {card.cost} and you have {player.energy} energy."
             )
             continue
 
         card_name = card.card_uid
-        print(
-            f"Playing card: {card_name}."
-        )
-        player.energy -= card.cost
+        print(f"Playing card: {card_name}.")
 
-        # Move the card from hand to discard pile
-        player.discard_pile.append(card)
-        del player.hand[index]
+        # All cards target the first enemy (hack for now)
+        player.play_card(index, 0)
 
         # Process any events (like enemy death)
         events = env.emit_events()

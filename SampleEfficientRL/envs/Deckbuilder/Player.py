@@ -1,5 +1,5 @@
 import random
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Optional
 
 from SampleEfficientRL.Envs.Deckbuilder.Card import Card
 from SampleEfficientRL.Envs.Deckbuilder.Statuses.EnergyUser import EnergyUser
@@ -52,3 +52,12 @@ class Player(Entity):
     def discard_hand(self) -> None:
         self.discard_pile.extend(self.hand)
         self.hand = []
+
+    def play_card(self, card_idx: int, target_idx: Optional[int] = None) -> None:
+        if card_idx < 0 or card_idx >= len(self.hand):
+            raise ValueError(f"Invalid card index: {card_idx}")
+        card = self.hand[card_idx]
+        self.energy -= card.cost
+        self.hand.pop(card_idx)
+        self.env.play_card(card, target_idx)
+        self.discard_pile.append(card)

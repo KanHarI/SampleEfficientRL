@@ -2,6 +2,7 @@ from enum import Enum
 from typing import List, Optional, cast
 
 import SampleEfficientRL.Envs.Deckbuilder.EnvActions.Attack as AttackModule
+from SampleEfficientRL.Envs.Deckbuilder.Card import Card, CardEffectTrigger
 from SampleEfficientRL.Envs.Deckbuilder.Entity import Entity
 from SampleEfficientRL.Envs.Deckbuilder.EnvAction import (
     EntityDescriptor,
@@ -97,9 +98,10 @@ class DeckbuilderSingleBattleEnv(Env[None, None]):
         for status_sid in StatusesOrder:
             if status_sid in entity_active_statuses:
                 status, amount = entity_active_statuses[status_sid]
-                callback = status.get_effects()[trigger_point]
-                if callback is not None:
-                    action = callback(self, amount, cast(EnvAction, action))
+                if trigger_point in status.get_effects():
+                    callback = status.get_effects()[trigger_point]
+                    if callback is not None:
+                        action = callback(self, amount, cast(EnvAction, action))
                 if action is None:
                     return None  # Action was fully blocked, etc.
         return action
@@ -185,6 +187,12 @@ class DeckbuilderSingleBattleEnv(Env[None, None]):
                     EntityDescriptor(is_player=False, enemy_idx=idx),
                     EffectTriggerPoint.ON_END_OF_TURN,
                 )
+
+    def play_card(self, card: Card, target_idx: Optional[int] = None) -> None:
+        card_callbacks = card.get_effects()
+        if CardEffectTrigger.ON_PLAY in card_callbacks:
+            callback = card_callbacks[CardEffectTrigger.ON_PLAY]
+            callback(self, target_idx)
 
     def reset(self) -> None:
         pass
