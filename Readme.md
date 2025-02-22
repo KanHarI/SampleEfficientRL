@@ -29,10 +29,11 @@ play_simple
 * Create a dynamics network that returns policy + estimated value
     * Will receive γ, as a the discount factor and support multiple values, will be trained on 0.9, 0.95, 0.98, 0.99, 0.999, 0.9999 (See Agent57 paper for motivation)
     * Will receive β, the curiosity reward factor. Will be trained on 0.0, 0.5, 1.0, 2.0, 5.0 of normalized reward  (See Agent57 paper for motivation)
+    * Will predict curiosity and external reward on different heads (See Agent57 paper for motivation)
 * Create a model network (See EfficientZero, MuZero, etc.):
     * Input: latent representation + action
     * Output: predicted next state
-* Create a discriminator network (See GANs, BYOL, SPR - Self-Predictive Representations. We are using it rather then a projection head as unlike ATARI and go, we have inherent randomness in the game. *This is the experimental part of this repo*):
+* Create a discriminator network (See EfficientZero; Also - GANs, BYOL, SPR[Self-Predictive Representations]. We are using it rather then a projection head as unlike ATARI and go, we have inherent randomness in the game. *This is the experimental part of this repo*):
     * Input: Predicted future latent representation OR observed next state
     * Output: Is the predicted future state correct?
 
