@@ -1,4 +1,5 @@
 import random
+from enum import Enum
 from typing import TYPE_CHECKING, List, Optional
 
 from SampleEfficientRL.Envs.Deckbuilder.Card import Card
@@ -8,11 +9,18 @@ if TYPE_CHECKING:
     from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
         DeckbuilderSingleBattleEnv,
     )
+
 from SampleEfficientRL.Envs.Deckbuilder.Entity import Entity
 from SampleEfficientRL.Envs.Deckbuilder.EnvAction import EntityDescriptor
 from SampleEfficientRL.Envs.Deckbuilder.Statuses.HandDrawer import HandDrawer
 
 HAND_SIZE = 5
+
+
+class PlayCardResult(Enum):
+    CARD_PLAYED_SUCCESSFULLY = 1
+    NOT_ENOUGH_ENERGY = 2
+    CARD_NOT_FOUND = 3
 
 
 class Player(Entity):
@@ -53,11 +61,16 @@ class Player(Entity):
         self.discard_pile.extend(self.hand)
         self.hand = []
 
-    def play_card(self, card_idx: int, target_idx: Optional[int] = None) -> None:
+    def play_card(
+        self, card_idx: int, target_idx: Optional[int] = None
+    ) -> PlayCardResult:
         if card_idx < 0 or card_idx >= len(self.hand):
-            raise ValueError(f"Invalid card index: {card_idx}")
+            return PlayCardResult.CARD_NOT_FOUND
         card = self.hand[card_idx]
+        if card.cost > self.energy:
+            return PlayCardResult.NOT_ENOUGH_ENERGY
         self.energy -= card.cost
         self.hand.pop(card_idx)
         self.env.play_card(card, target_idx)
         self.discard_pile.append(card)
+        return PlayCardResult.CARD_PLAYED_SUCCESSFULLY

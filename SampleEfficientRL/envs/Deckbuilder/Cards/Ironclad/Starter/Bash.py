@@ -34,7 +34,8 @@ class Bash(Card):
             raise ValueError("Enemy IDs are required for Bash")
         num_opponents_before_attack = env.get_num_opponents()
         env.attack_entity(
-            entity_descriptor=EntityDescriptor(is_player=False, enemy_idx=enemy_idx),
+            source=EntityDescriptor(is_player=True),
+            target=EntityDescriptor(is_player=False, enemy_idx=enemy_idx),
             amount=BASH_CARD_DAMAGE,
         )
         if num_opponents_before_attack == env.get_num_opponents():

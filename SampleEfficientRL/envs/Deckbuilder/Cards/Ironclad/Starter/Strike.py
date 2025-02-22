@@ -35,7 +35,8 @@ class Strike(Card):
             raise ValueError("Enemy IDs are required for Strike")
 
         env.attack_entity(
-            entity_descriptor=EntityDescriptor(is_player=False, enemy_idx=enemy_idx),
+            source=EntityDescriptor(is_player=True),
+            target=EntityDescriptor(is_player=False, enemy_idx=enemy_idx),
             amount=STRIKE_DAMAGE,
         )
 
