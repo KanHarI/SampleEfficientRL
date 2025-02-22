@@ -1,14 +1,28 @@
+from abc import ABC, abstractmethod
 from enum import Enum
+from typing import Optional
 
+from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
+    DeckbuilderSingleBattleEnv,
+)
 from SampleEfficientRL.Envs.Deckbuilder.Entity import Entity
 
 
-class NextMove(Enum):
+class NextMoveType(Enum):
     ATTACK = 0
-    BUFF = 1
-    DEBUFF = 2
+    RITUAL = 1
 
 
-class Opponent(Entity):
-    def __init__(self, max_health: int):
-        super().__init__(max_health)
+class NextMove(Enum):
+    def __init__(self, move_type: NextMoveType, amount: Optional[int] = None):
+        self.move_type = move_type
+        self.amount = amount
+
+
+class Opponent(ABC, Entity):
+    def __init__(self, env: DeckbuilderSingleBattleEnv, max_health: int):
+        super().__init__(env, max_health)
+
+    @abstractmethod
+    def select_move(self) -> NextMove:
+        pass

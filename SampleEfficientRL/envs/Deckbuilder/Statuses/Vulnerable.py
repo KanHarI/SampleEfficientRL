@@ -20,10 +20,14 @@ class Vulnerable(Status):
         super().__init__(StatusUIDs.VULNERABLE)
 
     def get_effects(self) -> Dict[EffectTriggerPoint, StatusEffectCallback]:
-        return {EffectTriggerPoint.ON_ATTACKED: self.on_attacked}
+        return {
+            EffectTriggerPoint.ON_ATTACKED: Vulnerable.on_attacked,
+            EffectTriggerPoint.ON_END_OF_TURN: Vulnerable.on_end_of_turn,
+        }
 
+    @staticmethod
     def on_attacked(
-        self, env: DeckbuilderSingleBattleEnv, amount: int, action: EnvAction
+        env: DeckbuilderSingleBattleEnv, amount: int, action: EnvAction
     ) -> Optional[EnvAction]:
         if action.env_action_type != EnvActionType.ATTACK:
             raise ValueError(
@@ -33,3 +37,13 @@ class Vulnerable(Status):
         attack_action = cast(Attack, action)
         attack_action.damage = math.floor(attack_action.damage * 1.5)
         return attack_action
+
+    @staticmethod
+    def on_end_of_turn(
+        env: DeckbuilderSingleBattleEnv, amount: int, action: EnvAction
+    ) -> Optional[EnvAction]:
+        if amount == 1:
+            env.reset_entity_status(action.entity_descriptor, StatusUIDs.VULNERABLE)
+        else:
+            env.apply_status_to_entity(action.entity_descriptor, Vulnerable(), -1)
+        return action

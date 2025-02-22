@@ -31,10 +31,10 @@ StatusesOrder: List[StatusUIDs] = [
     StatusUIDs.VULNERABLE,
     StatusUIDs.WEAK,
     StatusUIDs.FRAIL,
-    StatusUIDs.BLOCK,
     StatusUIDs.POISON,
     StatusUIDs.RITUAL,
     StatusUIDs.STRENGTH,
+    StatusUIDs.BLOCK,
 ]
 
 # env, amount, action

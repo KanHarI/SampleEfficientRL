@@ -1,12 +1,16 @@
 from typing import Dict, Tuple
 
+from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
+    DeckbuilderSingleBattleEnv,
+)
 from SampleEfficientRL.Envs.Deckbuilder.Status import Status, StatusUIDs
 
 
 class Entity:
     statuses: Dict[StatusUIDs, Tuple[Status, int]]
 
-    def __init__(self, max_health: int) -> None:
+    def __init__(self, env: DeckbuilderSingleBattleEnv, max_health: int) -> None:
+        self.env = env
         self.statuses = {}
         self.max_health = max_health
         self.current_health = max_health

@@ -20,12 +20,13 @@ class Block(Status):
 
     def get_effects(self) -> Dict[EffectTriggerPoint, StatusEffectCallback]:
         return {
-            EffectTriggerPoint.ON_ATTACKED: self.on_attacked,
-            EffectTriggerPoint.ON_END_OF_TURN: self.on_end_of_turn,
+            EffectTriggerPoint.ON_ATTACKED: Block.on_attacked,
+            EffectTriggerPoint.ON_END_OF_TURN: Block.on_end_of_turn,
         }
 
+    @staticmethod
     def on_attacked(
-        self, env: DeckbuilderSingleBattleEnv, amount: int, action: EnvAction
+        env: DeckbuilderSingleBattleEnv, amount: int, action: EnvAction
     ) -> Optional[EnvAction]:
         if action.env_action_type != EnvActionType.ATTACK:
             raise ValueError(
@@ -43,8 +44,9 @@ class Block(Status):
             )
             return None
 
+    @staticmethod
     def on_end_of_turn(
-        self, env: DeckbuilderSingleBattleEnv, amount: int, action: EnvAction
+        env: DeckbuilderSingleBattleEnv, amount: int, action: EnvAction
     ) -> Optional[EnvAction]:
         env.reset_entity_status(action.entity_descriptor, StatusUIDs.BLOCK)
         return action
