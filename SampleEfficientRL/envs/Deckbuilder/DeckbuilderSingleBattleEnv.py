@@ -4,6 +4,8 @@ from typing import List, Optional, cast
 
 from SampleEfficientRL.Envs.Deckbuilder.Entity import Entity
 from SampleEfficientRL.Envs.Deckbuilder.EnvActions.Attack import Attack
+from SampleEfficientRL.Envs.Deckbuilder.EnvActions.EndOfTurn import EndOfTurn
+from SampleEfficientRL.Envs.Deckbuilder.EnvActions.StartOfTurn import StartOfTurn
 from SampleEfficientRL.Envs.Deckbuilder.Opponent import Opponent
 from SampleEfficientRL.Envs.Deckbuilder.Player import Player
 from SampleEfficientRL.Envs.Deckbuilder.Status import (
@@ -23,6 +25,8 @@ class EntityDescriptor:
 
 class EnvActionType(Enum):
     ATTACK = "attack"
+    START_OF_TURN = "start_of_turn"
+    END_OF_TURN = "end_of_turn"
 
 
 @dataclass
@@ -149,3 +153,49 @@ class DeckbuilderSingleBattleEnv(Env[None, None]):
         if self.player is None:
             raise ValueError("Player is not set")
         self.player.discard_hand()
+
+    def start_turn(self) -> None:
+        if self.player is None:
+            raise ValueError("Player is not set")
+        action = StartOfTurn(
+            env_action_type=EnvActionType.START_OF_TURN,
+            entity_descriptor=EntityDescriptor(is_player=True),
+        )
+        self.apply_action_callbacks(
+            action,
+            EntityDescriptor(is_player=True),
+            EffectTriggerPoint.ON_START_OF_TURN,
+        )
+        if self.opponents is not None:
+            for idx in range(len(self.opponents)):
+                action = StartOfTurn(
+                    env_action_type=EnvActionType.START_OF_TURN,
+                    entity_descriptor=EntityDescriptor(is_player=False, enemy_idx=idx),
+                )
+                self.apply_action_callbacks(
+                    action,
+                    EntityDescriptor(is_player=False, enemy_idx=idx),
+                    EffectTriggerPoint.ON_START_OF_TURN,
+                )
+
+    def end_turn(self) -> None:
+        if self.player is None:
+            raise ValueError("Player is not set")
+        action = EndOfTurn(
+            env_action_type=EnvActionType.END_OF_TURN,
+            entity_descriptor=EntityDescriptor(is_player=True),
+        )
+        self.apply_action_callbacks(
+            action, EntityDescriptor(is_player=True), EffectTriggerPoint.ON_END_OF_TURN
+        )
+        if self.opponents is not None:
+            for idx in range(len(self.opponents)):
+                action = EndOfTurn(
+                    env_action_type=EnvActionType.END_OF_TURN,
+                    entity_descriptor=EntityDescriptor(is_player=False, enemy_idx=idx),
+                )
+                self.apply_action_callbacks(
+                    action,
+                    EntityDescriptor(is_player=False, enemy_idx=idx),
+                    EffectTriggerPoint.ON_END_OF_TURN,
+                )
