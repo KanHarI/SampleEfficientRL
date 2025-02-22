@@ -27,9 +27,11 @@ class StatusUIDs(Enum):
     RITUAL = 6
     STRENGTH = 7
     HAND_DRAWER = 8
+    ENERGY_USER = 9
 
 
 StatusesOrder: List[StatusUIDs] = [
+    StatusUIDs.ENERGY_USER,
     StatusUIDs.VULNERABLE,
     StatusUIDs.WEAK,
     StatusUIDs.FRAIL,

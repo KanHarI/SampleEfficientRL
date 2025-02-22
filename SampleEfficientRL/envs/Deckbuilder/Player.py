@@ -2,6 +2,7 @@ import random
 from typing import TYPE_CHECKING, List
 
 from SampleEfficientRL.Envs.Deckbuilder.Card import Card
+from SampleEfficientRL.Envs.Deckbuilder.Statuses.EnergyUser import EnergyUser
 
 if TYPE_CHECKING:
     from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
@@ -28,11 +29,15 @@ class Player(Entity):
     ):
         self.deck = starting_deck
         self.max_energy = max_energy
+        self.energy = 0
         super().__init__(env, max_health)
 
     def register_player(self, env: "DeckbuilderSingleBattleEnv") -> None:
         env.apply_status_to_entity(
             EntityDescriptor(is_player=True), HandDrawer(), HAND_SIZE
+        )
+        env.apply_status_to_entity(
+            EntityDescriptor(is_player=True), EnergyUser(), self.max_energy
         )
 
     def draw_card(self) -> None:
