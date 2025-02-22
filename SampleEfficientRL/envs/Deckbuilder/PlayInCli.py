@@ -31,22 +31,22 @@ def print_state(env: DeckbuilderSingleBattleEnv) -> None:
     print("Player Hand:")
     for i, card in enumerate(player.hand):
         # Try to get card properties, fallback to defaults
-        card_name = card.card_uid
+        card_uid = card.card_uid
         card_cost = card.cost
-        print(f"  [{i}] {card_name.name} (Cost: {card_cost})")
+        print(f"  [{i}] {card_uid.name} (Cost: {card_cost})")
     draw_pile = player.draw_pile.copy()
     random.shuffle(draw_pile)
     print("Draw Pile:")
     for i, card in enumerate(draw_pile):
-        card_name = card.card_uid
+        card_uid = card.card_uid
         card_cost = card.cost
-        print(f"  [{i}] {card_name.name} (Cost: {card_cost})")
+        print(f"  [{i}] {card_uid.name} (Cost: {card_cost})")
     discard_pile = player.discard_pile.copy()
     print("Discard Pile:")
     for i, card in enumerate(discard_pile):
-        card_name = card.card_uid
+        card_uid = card.card_uid
         card_cost = card.cost
-        print(f"  [{i}] {card_name} (Cost: {card_cost})")
+        print(f"  [{i}] {card_uid.name} (Cost: {card_cost})")
     print("Player Statuses:")
     for status_uid in StatusesOrder:
         if status_uid in player.get_active_statuses():
