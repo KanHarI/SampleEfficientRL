@@ -8,6 +8,10 @@ from SampleEfficientRL.Envs.Deckbuilder.Entity import Entity
 
 
 class Player(Entity):
+    hand: List[Card]
+    draw_pile: List[Card]
+    discard_pile: List[Card]
+
     def __init__(
         self,
         env: DeckbuilderSingleBattleEnv,

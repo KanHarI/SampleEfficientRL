@@ -18,7 +18,7 @@ from SampleEfficientRL.Envs.Env import Env
 @dataclass
 class EntityDescriptor:
     is_player: bool
-    enemy_idx: Optional[int]
+    enemy_idx: Optional[int] = None
 
 
 class EnvActionType(Enum):
