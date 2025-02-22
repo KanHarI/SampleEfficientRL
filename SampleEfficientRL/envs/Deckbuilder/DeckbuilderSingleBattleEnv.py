@@ -73,7 +73,9 @@ class DeckbuilderSingleBattleEnv(Env[None, None]):
             raise ValueError("Opponents are not set")
         return len(self.opponents)
 
-    def reduce_entity_hp(self, entity_descriptor: EntityDescriptor, amount: int) -> None:
+    def reduce_entity_hp(
+        self, entity_descriptor: EntityDescriptor, amount: int
+    ) -> None:
         entity = self.find_entity_by_descriptor(entity_descriptor)
         is_dead = entity.reduce_health(amount)
         if is_dead:
