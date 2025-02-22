@@ -59,6 +59,11 @@ def print_state(env: DeckbuilderSingleBattleEnv) -> None:
             status, amount = opponent.get_active_statuses()[status_uid]
             print(f"  {status_uid.name}: {amount}")
     print("Opponent action:")
+    opponent_action = opponent.next_move
+    if opponent_action is None:
+        print("No action")
+    else:
+        print(f"{opponent_action.move_type.name} with amount {opponent_action.amount}.")
     print_separator()
 
 
