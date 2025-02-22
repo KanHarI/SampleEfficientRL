@@ -49,6 +49,6 @@ play_simple
 * Create a battle with a "real" deck against 3 cultists
 * Create a sequence of battles with card rewards chosen in between
 
-## Connecting to the engine
+## Connecting to Slay The Spire
 * Connect to the engine via CommunicationMode
 * Connect to lightning_sts ?
