@@ -36,6 +36,7 @@ play_simple
 * Create a discriminator network (See EfficientZero; Also - GANs, BYOL, SPR[Self-Predictive Representations]. We are using it rather then a projection head as unlike ATARI and go, we have inherent randomness in the game. *This is the experimental part of this repo*):
     * Input: Predicted future latent representation OR observed next state
     * Output: Is the predicted future state correct?
+    * Derive a curiosity reward from the discriminator network - if reality confuses us OR the the predicted future state is systematically wrong, we are in interesting territory
 * Implement MCTS searching with the model network and the dynamics network
 * Implement a self-consistency loss (See EfficientZero)
 
