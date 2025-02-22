@@ -15,7 +15,7 @@ from SampleEfficientRL.Envs.Deckbuilder.Status import (
 
 
 class Strength(Status):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(StatusUIDs.STRENGTH)
 
     def get_effects(self) -> Dict[EffectTriggerPoint, StatusEffectCallback]:

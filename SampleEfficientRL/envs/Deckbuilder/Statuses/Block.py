@@ -15,7 +15,7 @@ from SampleEfficientRL.Envs.Deckbuilder.Status import (
 
 
 class Block(Status):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(StatusUIDs.BLOCK)
 
     def get_effects(self) -> Dict[EffectTriggerPoint, StatusEffectCallback]:

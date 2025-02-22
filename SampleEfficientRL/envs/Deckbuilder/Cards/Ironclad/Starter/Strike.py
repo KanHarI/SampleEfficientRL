@@ -18,7 +18,7 @@ STRIKE_DAMAGE = 6
 
 
 class Strike(Card):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(card_type=CardType.ATTACK, cost=1, card_uid=CardUIDs.STRIKE)
 
     def get_effects(self) -> Dict[CardEffectTrigger, CardEffectCallback]:

@@ -20,7 +20,7 @@ BASH_AMOUNT_OF_VULNERABLE = 2
 
 
 class Bash(Card):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(card_type=CardType.ATTACK, cost=2, card_uid=CardUIDs.BASH)
 
     def get_effects(self) -> Dict[CardEffectTrigger, CardEffectCallback]:

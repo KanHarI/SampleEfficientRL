@@ -18,7 +18,7 @@ DEFEND_BLOCK_AMOUNT = 5
 
 
 class Defend(Card):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(card_type=CardType.SKILL, cost=1, card_uid=CardUIDs.DEFEND)
 
     def get_effects(self) -> Dict[CardEffectTrigger, CardEffectCallback]:

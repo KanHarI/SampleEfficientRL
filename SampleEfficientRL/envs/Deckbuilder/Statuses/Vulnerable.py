@@ -16,7 +16,7 @@ from SampleEfficientRL.Envs.Deckbuilder.Status import (
 
 
 class Vulnerable(Status):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(StatusUIDs.VULNERABLE)
 
     def get_effects(self) -> Dict[EffectTriggerPoint, StatusEffectCallback]:

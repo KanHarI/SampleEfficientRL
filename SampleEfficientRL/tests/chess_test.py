@@ -3,7 +3,7 @@ import random
 import chess
 
 
-def test_chess():
+def test_chess() -> None:
     # Initialize a new chess board
     board = chess.Board()
     assert board is not None

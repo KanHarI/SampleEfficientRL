@@ -14,7 +14,7 @@ from SampleEfficientRL.Envs.Deckbuilder.Statuses.Strength import Strength
 
 
 class Ritual(Status):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(StatusUIDs.RITUAL)
 
     def get_effects(self) -> Dict[EffectTriggerPoint, StatusEffectCallback]:

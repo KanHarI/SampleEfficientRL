@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, cast
 
 from SampleEfficientRL.Envs.Deckbuilder.Entity import Entity
 from SampleEfficientRL.Envs.Deckbuilder.EnvActions.Attack import Attack
@@ -37,30 +37,51 @@ class EnvEvents(Enum):
     WIN_BATTLE = "WIN_BATTLE"
 
 
-class DeckbuilderSingleBattleEnv(Env):
-    def __init__(self, player: Player, opponents: List[Opponent]):
-        self.player = player
-        self.opponents = opponents
+# None, None - observation and actions are not yet implemented
+class DeckbuilderSingleBattleEnv(Env[None, None]):
+    player: Optional[Player] = None
+    opponents: Optional[List[Opponent]] = []
+
+    def __init__(self) -> None:
         self.unemitted_events: List[EnvEvents] = []
+
+    def set_player(self, player: Player) -> None:
+        self.player = player
+
+    def set_opponents(self, opponents: List[Opponent]) -> None:
+        self.opponents = opponents
 
     def find_entity_by_descriptor(self, entity_descriptor: EntityDescriptor) -> Entity:
         if entity_descriptor.is_player:
+            if self.player is None:
+                raise ValueError("Player is not set")
             return self.player
         else:
+            if self.opponents is None:
+                raise ValueError("Opponents are not set")
             if entity_descriptor.enemy_idx is None:
                 raise ValueError("Enemy index is required for non-player entities")
+            if (
+                entity_descriptor.enemy_idx >= len(self.opponents)
+                or entity_descriptor.enemy_idx < 0
+            ):
+                raise ValueError("Enemy index is out of bounds")
             return self.opponents[entity_descriptor.enemy_idx]
 
     def get_num_opponents(self) -> int:
+        if self.opponents is None:
+            raise ValueError("Opponents are not set")
         return len(self.opponents)
 
-    def reduce_entity_hp(self, entity_descriptor: EntityDescriptor, amount: int):
+    def reduce_entity_hp(self, entity_descriptor: EntityDescriptor, amount: int) -> None:
         entity = self.find_entity_by_descriptor(entity_descriptor)
         is_dead = entity.reduce_health(amount)
         if is_dead:
             if entity_descriptor.is_player:
                 self.unemitted_events.append(EnvEvents.PLAYER_DEATH)
             else:
+                if self.opponents is None:
+                    raise ValueError("Opponents are not set")
                 if entity_descriptor.enemy_idx is None:
                     raise ValueError("Enemy index is required for non-player entities")
                 self.unemitted_events.append(EnvEvents.OPPONENT_DEATH)
@@ -75,10 +96,10 @@ class DeckbuilderSingleBattleEnv(Env):
 
     def apply_action_callbacks(
         self,
-        action: EnvAction,
+        action: EnvAction | None,
         entity_descriptor: EntityDescriptor,
         trigger_point: EffectTriggerPoint,
-    ):
+    ) -> Optional[EnvAction]:
         entity = self.find_entity_by_descriptor(entity_descriptor)
         entity_active_statuses = entity.get_active_statuses()
         for status_sid in StatusesOrder:
@@ -86,15 +107,13 @@ class DeckbuilderSingleBattleEnv(Env):
                 status, amount = entity_active_statuses[status_sid]
                 callback = status.get_effects()[trigger_point]
                 if callback is not None:
-                    action_or_none = callback(self, amount, action)
-                if action_or_none is None:
-                    break  # Action was fully blocked, etc.
-                else:
-                    action = action_or_none
+                    action = callback(self, amount, cast(EnvAction, action))
+                if action is None:
+                    return None  # Action was fully blocked, etc.
         return action
 
-    def attack_entity(self, entity_descriptor: EntityDescriptor, amount: int):
-        action = Attack(
+    def attack_entity(self, entity_descriptor: EntityDescriptor, amount: int) -> None:
+        action: EnvAction | None = Attack(
             env_action_type=EnvActionType.ATTACK,
             entity_descriptor=entity_descriptor,
             damage=amount,
@@ -104,22 +123,27 @@ class DeckbuilderSingleBattleEnv(Env):
         )
 
         if action is not None:
-            self.reduce_entity_hp(entity_descriptor, action.damage)
+            attack_action = cast(Attack, action)
+            self.reduce_entity_hp(entity_descriptor, attack_action.damage)
 
     def reset_entity_status(
         self, entity_descriptor: EntityDescriptor, status_uid: StatusUIDs
-    ):
+    ) -> None:
         entity = self.find_entity_by_descriptor(entity_descriptor)
         entity.reset_status(status_uid)
 
     def apply_status_to_entity(
         self, entity_descriptor: EntityDescriptor, status: Status, amount: int
-    ):
+    ) -> None:
         entity = self.find_entity_by_descriptor(entity_descriptor)
         entity.apply_status(status, amount)
 
     def player_draw_card(self) -> None:
+        if self.player is None:
+            raise ValueError("Player is not set")
         self.player.draw_card()
 
     def player_discard_hand(self) -> None:
+        if self.player is None:
+            raise ValueError("Player is not set")
         self.player.discard_hand()

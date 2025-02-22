@@ -14,7 +14,7 @@ echo "Linting:"
 python -m flake8 SampleEfficientRL/
 
 echo "Mypy type checking:"
-python -m mypy SampleEfficientRL/
+python -m mypy --strict SampleEfficientRL/
 
 echo "Testing:"
 python -m pytest SampleEfficientRL/tests/
