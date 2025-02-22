@@ -45,3 +45,7 @@ play_simple
 * Give Charon's Ashes to the agent 50% of times and let it know it is there, to allow it learn to use exhaust and "understand artifacts"
 * Create a battle with a "real" deck against 3 cultists
 * Create a sequence of battles with card rewards chosen in between
+
+## Connecting to the engine
+* Connect to the engine via CommunicationMode
+* Connect to lightning_sts ?
