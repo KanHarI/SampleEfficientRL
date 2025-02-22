@@ -25,6 +25,7 @@ class StatusUIDs(Enum):
     BLOCK = 5
     RITUAL = 6
     STRENGTH = 7
+    HAND_DRAWER = 8
 
 
 StatusesOrder: List[StatusUIDs] = [
@@ -35,6 +36,7 @@ StatusesOrder: List[StatusUIDs] = [
     StatusUIDs.RITUAL,
     StatusUIDs.STRENGTH,
     StatusUIDs.BLOCK,
+    StatusUIDs.HAND_DRAWER,
 ]
 
 # env, amount, action
