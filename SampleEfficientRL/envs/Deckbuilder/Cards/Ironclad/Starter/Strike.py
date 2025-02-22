@@ -4,8 +4,10 @@ from SampleEfficientRL.Envs.Deckbuilder.Card import (
     Card,
     CardEffectCallback,
     CardEffectTrigger,
+    CardTargetingInfo,
     CardType,
     CardUIDs,
+    TargetType,
 )
 from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
     DeckbuilderSingleBattleEnv,
@@ -32,4 +34,9 @@ class Strike(Card):
         env.attack_entity(
             entity_descriptor=EntityDescriptor(is_player=False, enemy_idx=enemy_idx),
             amount=STRIKE_DAMAGE,
+        )
+
+    def get_targeting_info(self) -> CardTargetingInfo:
+        return CardTargetingInfo(
+            requires_target=True, targeting_type=TargetType.OPPONENT
         )

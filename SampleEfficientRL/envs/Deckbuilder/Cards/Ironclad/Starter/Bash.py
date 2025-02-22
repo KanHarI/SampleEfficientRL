@@ -4,8 +4,10 @@ from SampleEfficientRL.Envs.Deckbuilder.Card import (
     Card,
     CardEffectCallback,
     CardEffectTrigger,
+    CardTargetingInfo,
     CardType,
     CardUIDs,
+    TargetType,
 )
 from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
     DeckbuilderSingleBattleEnv,
@@ -43,3 +45,8 @@ class Bash(Card):
                 status=Vulnerable(),
                 amount=BASH_AMOUNT_OF_VULNERABLE,
             )
+
+    def get_targeting_info(self) -> CardTargetingInfo:
+        return CardTargetingInfo(
+            requires_target=True, targeting_type=TargetType.OPPONENT
+        )

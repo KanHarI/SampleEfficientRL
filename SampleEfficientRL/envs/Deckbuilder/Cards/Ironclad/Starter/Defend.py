@@ -4,6 +4,7 @@ from SampleEfficientRL.Envs.Deckbuilder.Card import (
     Card,
     CardEffectCallback,
     CardEffectTrigger,
+    CardTargetingInfo,
     CardType,
     CardUIDs,
 )
@@ -30,3 +31,6 @@ class Defend(Card):
             status=Block(),
             amount=DEFEND_BLOCK_AMOUNT,
         )
+
+    def get_targeting_info(self) -> CardTargetingInfo:
+        return CardTargetingInfo(requires_target=False, targeting_type=None)

@@ -117,10 +117,9 @@ class DeckbuilderSingleBattleEnv(Env):
     ):
         entity = self.find_entity_by_descriptor(entity_descriptor)
         entity.apply_status(status, amount)
-    
+
     def player_draw_card(self) -> None:
         self.player.draw_card()
-    
+
     def player_discard_hand(self) -> None:
         self.player.discard_hand()
-    

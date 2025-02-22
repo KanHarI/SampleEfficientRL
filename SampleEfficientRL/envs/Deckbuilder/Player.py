@@ -1,4 +1,4 @@
-from random import random
+import random
 from typing import List
 
 from SampleEfficientRL.Envs.Deckbuilder.Card import Card
@@ -10,6 +10,7 @@ from SampleEfficientRL.Envs.Deckbuilder.Entity import Entity
 from SampleEfficientRL.Envs.Deckbuilder.Statuses.HandDrawer import HandDrawer
 
 HAND_SIZE = 5
+
 
 class Player(Entity):
     hand: List[Card]
@@ -26,8 +27,10 @@ class Player(Entity):
         self.deck = starting_deck
         self.max_energy = max_energy
         super().__init__(env, max_health)
-        env.apply_status_to_entity(EntityDescriptor(is_player=True), HandDrawer(), HAND_SIZE)
-    
+        env.apply_status_to_entity(
+            EntityDescriptor(is_player=True), HandDrawer(), HAND_SIZE
+        )
+
     def draw_card(self) -> None:
         if len(self.draw_pile) == 0:
             self.draw_pile = self.discard_pile
@@ -35,7 +38,7 @@ class Player(Entity):
             random.shuffle(self.draw_pile)
         if len(self.draw_pile) > 0:
             self.hand.append(self.draw_pile.pop())
-    
+
     def discard_hand(self) -> None:
         self.discard_pile.extend(self.hand)
         self.hand = []
