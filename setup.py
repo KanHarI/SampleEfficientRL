@@ -7,6 +7,7 @@ setup(
     install_requires=[
         "chess",
         "numpy",
+        "torch",
     ],
     extras_require={
         "dev": [
