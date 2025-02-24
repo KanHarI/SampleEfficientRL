@@ -34,6 +34,7 @@ setup(
         'console_scripts': [
             'play_simple=SampleEfficientRL.Envs.Deckbuilder.PlayInCli:main',
             'random_walk=SampleEfficientRL.Envs.Deckbuilder.RandomWalkAgent:main',
+            'replay_explorer=SampleEfficientRL.Envs.Deckbuilder.ReplayExplorer:main',
         ],
     },
 )

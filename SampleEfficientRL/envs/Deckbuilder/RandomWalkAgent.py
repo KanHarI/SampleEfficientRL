@@ -10,6 +10,8 @@ from SampleEfficientRL.Envs.Deckbuilder.Player import PlayCardResult
 from SampleEfficientRL.Envs.Deckbuilder.Tensorizers.SingleBattleEnvTensorizer import (
     SingleBattleEnvTensorizer,
     SingleBattleEnvTensorizerConfig,
+    TensorizerMode,
+    ActionType,
 )
 
 
@@ -46,13 +48,15 @@ class RandomWalkAgent:
         if player is None:
             raise ValueError("Player is not set")
         
-        # Record initial state at start of turn
-        self.record_state()
+        # Record initial state at start of turn (no longer needed with tensorizer recording)
+        # self.record_state()
         
         while True:
             # Randomly decide whether to end the turn prematurely
             if random.random() < self.end_turn_probability:
                 print("Randomly decided to end turn early")
+                # Record the end turn action
+                self.tensorizer.record_end_turn(self.env)
                 break
                 
             # Get playable cards (cost <= current energy)
@@ -63,11 +67,16 @@ class RandomWalkAgent:
             
             if not playable_cards:
                 print("No playable cards left, ending turn")
+                # Record the end turn action
+                self.tensorizer.record_end_turn(self.env)
                 break
                 
             # Randomly select a card to play
             card_index, card = random.choice(playable_cards)
             print(f"Playing card: {card.card_uid.name} (Cost: {card.cost}, Energy: {player.energy})")
+            
+            # Record the state and action before playing the card
+            self.tensorizer.record_play_card(self.env, card_index, 0)
             
             # All cards target the first enemy (hack as in the original code)
             result = self.env.play_card_from_hand(card_index, 0)
@@ -79,8 +88,8 @@ class RandomWalkAgent:
             elif result == PlayCardResult.CARD_PLAYED_SUCCESSFULLY:
                 print("Card played successfully")
             
-            # Record state after playing card
-            self.record_state()
+            # Record state after playing card (no longer needed with tensorizer recording)
+            # self.record_state()
             
             # Check for game-ending events
             events = self.env.emit_events()
@@ -98,8 +107,9 @@ class RandomWalkAgent:
         """Save the recorded playthrough data to a binary file."""
         # Ensure the directory exists
         os.makedirs(os.path.dirname(filename), exist_ok=True)
-        torch.save(self.playthrough_data, filename)
-        print(f"Saved playthrough data with {len(self.playthrough_data)} states to {filename}")
+        # Use the tensorizer's save_playthrough method instead
+        self.tensorizer.save_playthrough(filename)
+        print(f"Saved playthrough data with {len(self.tensorizer.get_playthrough_data())} steps to {filename}")
 
 
 def main() -> None:
@@ -117,22 +127,12 @@ def main() -> None:
     # Set up game
     game = IroncladStarterVsCultist()
     
-    # Set up tensorizer with fix for the card_uid vs uid issue
-    class FixedSingleBattleEnvTensorizer(SingleBattleEnvTensorizer):
-        def tensorize(self, state: DeckbuilderSingleBattleEnv):
-            # Initialize tensors with zeros
-            token_types = torch.zeros(self.config.context_size, dtype=torch.long)
-            card_uid_indices = torch.zeros(self.config.context_size, dtype=torch.long)
-            status_uid_indices = torch.zeros(self.config.context_size, dtype=torch.long)
-            enemy_intent_indices = torch.zeros(self.config.context_size, dtype=torch.long)
-            encoded_numbers = torch.zeros(self.config.context_size, dtype=torch.long)
-            
-            # Simple implementation that just returns empty tensors for now
-            # This avoids the uid vs card_uid issue
-            return token_types, card_uid_indices, status_uid_indices, enemy_intent_indices, encoded_numbers
-    
-    tensorizer_config = SingleBattleEnvTensorizerConfig(context_size=128)
-    tensorizer = FixedSingleBattleEnvTensorizer(tensorizer_config)
+    # Set up tensorizer in RECORD mode
+    tensorizer_config = SingleBattleEnvTensorizerConfig(
+        context_size=128,
+        mode=TensorizerMode.RECORD
+    )
+    tensorizer = SingleBattleEnvTensorizer(tensorizer_config)
     
     # Create agent
     agent = RandomWalkAgent(game, tensorizer)
@@ -162,14 +162,24 @@ def main() -> None:
             f"Opponent {opponent.opponent_type_uid.name} action: {next_move.move_type.name} with amount {next_move.amount}."
         )
         
-        # Record state before enemy action
-        agent.record_state()
+        # The enemy is about to act, record a NO_OP action for this state
+        enemy_action_state = tensorizer.tensorize(game)
+        tensorizer.record_action(
+            state_tensor=enemy_action_state,
+            action_type=ActionType.NO_OP,
+            reward=0.0
+        )
         
         # Enemy takes action
         game.end_turn()
         
-        # Record state after enemy action
-        agent.record_state()
+        # After enemy action, record the resulting state with a NO_OP action
+        post_enemy_state = tensorizer.tensorize(game)
+        tensorizer.record_action(
+            state_tensor=post_enemy_state,
+            action_type=ActionType.NO_OP,
+            reward=0.0
+        )
         
         if game.player.current_health <= 0:
             print("Agent was defeated after the enemy's turn.")

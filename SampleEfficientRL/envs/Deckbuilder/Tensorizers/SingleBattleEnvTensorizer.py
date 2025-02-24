@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Tuple
+from typing import Dict, List, Optional, Tuple, Union, Any
 
 import torch
 
@@ -52,6 +52,11 @@ class TokenType(Enum):
     ENTITY_STATUS = 5
     ENEMY_INTENT = 6
 
+class ActionType(Enum):
+    PLAY_CARD = 0
+    END_TURN = 1
+    NO_OP = 2  # For states where no action is taken
+
 
 NUM_MAX_ENEMIES = ENTITY_TYPE.ENEMY_6.value
 
@@ -61,6 +66,11 @@ SCALAR_NUMBER_DIMS = 1
 LOG_NUMBER_DIMS = 1
 
 
+class TensorizerMode(Enum):
+    OBSERVE = 0  # Just observe current game state
+    RECORD = 1   # Record playthrough with actions
+
+
 @dataclass
 class SingleBattleEnvTensorizerConfig:
     """
@@ -68,11 +78,23 @@ class SingleBattleEnvTensorizerConfig:
     Output is (savable, serializable) tensor representation of the state
     """
     context_size: int
+    mode: TensorizerMode = TensorizerMode.OBSERVE
+
+
+@dataclass
+class PlaythroughStep:
+    """A single step in a playthrough, containing state and action information."""
+    state: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
+    action_type: ActionType
+    card_idx: Optional[int] = None
+    target_idx: Optional[int] = None
+    reward: float = 0.0
 
 
 class SingleBattleEnvTensorizer:
     def __init__(self, config: SingleBattleEnvTensorizerConfig):
         self.config = config
+        self.playthrough_steps: List[PlaythroughStep] = []
 
     # Return tensors tuple:
     # Token types,
@@ -119,8 +141,8 @@ class SingleBattleEnvTensorizer:
             check_context_size()
             
             token_types[position] = TokenType.DRAW_DECK_CARD.value
-            if card.uid in SUPPORTED_CARDS_UIDs:
-                card_uid_indices[position] = SUPPORTED_CARDS_UIDs.index(card.uid) + 1  # +1 for padding
+            if card.card_uid in SUPPORTED_CARDS_UIDs:
+                card_uid_indices[position] = SUPPORTED_CARDS_UIDs.index(card.card_uid) + 1  # +1 for padding
             
             position += 1
         
@@ -129,8 +151,8 @@ class SingleBattleEnvTensorizer:
             check_context_size()
             
             token_types[position] = TokenType.DISCARD_DECK_CARD.value
-            if card.uid in SUPPORTED_CARDS_UIDs:
-                card_uid_indices[position] = SUPPORTED_CARDS_UIDs.index(card.uid) + 1
+            if card.card_uid in SUPPORTED_CARDS_UIDs:
+                card_uid_indices[position] = SUPPORTED_CARDS_UIDs.index(card.card_uid) + 1
             
             position += 1
         
@@ -140,15 +162,15 @@ class SingleBattleEnvTensorizer:
             
             # Using draw deck token type for hand cards since there's no specific hand token
             token_types[position] = TokenType.DRAW_DECK_CARD.value
-            if card.uid in SUPPORTED_CARDS_UIDs:
-                card_uid_indices[position] = SUPPORTED_CARDS_UIDs.index(card.uid) + 1
+            if card.card_uid in SUPPORTED_CARDS_UIDs:
+                card_uid_indices[position] = SUPPORTED_CARDS_UIDs.index(card.card_uid) + 1
             
             position += 1
         
         # Encode player entity information
         check_context_size()
         token_types[position] = TokenType.ENTITY_HP.value
-        encoded_numbers[position] = min(state.player.health, MAX_ENCODED_NUMBER)
+        encoded_numbers[position] = min(state.player.current_health, MAX_ENCODED_NUMBER)
         position += 1
         
         check_context_size()
@@ -162,51 +184,141 @@ class SingleBattleEnvTensorizer:
         position += 1
         
         # Encode player statuses
-        if hasattr(state.player, 'statuses'):
-            for status in state.player.statuses:
-                check_context_size()
-                
-                if status.uid in SUPPORTED_STATUS_UIDs:
-                    token_types[position] = TokenType.ENTITY_STATUS.value
-                    status_uid_indices[position] = SUPPORTED_STATUS_UIDs.index(status.uid) + 1
-                    encoded_numbers[position] = min(status.stacks, MAX_ENCODED_NUMBER)
-                    position += 1
+        for status_uid, (status, amount) in state.player.get_active_statuses().items():
+            check_context_size()
+            
+            if status_uid in SUPPORTED_STATUS_UIDs:
+                token_types[position] = TokenType.ENTITY_STATUS.value
+                status_uid_indices[position] = SUPPORTED_STATUS_UIDs.index(status_uid) + 1
+                encoded_numbers[position] = min(amount, MAX_ENCODED_NUMBER)
+                position += 1
         
         # Encode enemies
-        if hasattr(state, 'enemies'):
-            for enemy_idx, enemy in enumerate(state.enemies):
-                if not hasattr(enemy, 'is_alive') or enemy.is_alive:
-                    # Enemy HP
+        for enemy_idx, enemy in enumerate(state.opponents):
+            if enemy.current_health > 0:  # Check if enemy is alive using current_health
+                # Enemy HP
+                check_context_size()
+                token_types[position] = TokenType.ENTITY_HP.value
+                encoded_numbers[position] = min(enemy.current_health, MAX_ENCODED_NUMBER)
+                position += 1
+                
+                # Enemy Max HP
+                check_context_size()
+                token_types[position] = TokenType.ENTITY_MAX_HP.value
+                encoded_numbers[position] = min(enemy.max_health, MAX_ENCODED_NUMBER)
+                position += 1
+                
+                # Enemy intent
+                if enemy.next_move:
                     check_context_size()
-                    token_types[position] = TokenType.ENTITY_HP.value
-                    encoded_numbers[position] = min(enemy.health, MAX_ENCODED_NUMBER)
+                    token_types[position] = TokenType.ENEMY_INTENT.value
+                    if enemy.next_move.move_type in SUPPORTED_ENEMY_INTENT_TYPES:
+                        enemy_intent_indices[position] = SUPPORTED_ENEMY_INTENT_TYPES.index(enemy.next_move.move_type) + 1
+                    if enemy.next_move.amount is not None:
+                        encoded_numbers[position] = min(enemy.next_move.amount, MAX_ENCODED_NUMBER)
                     position += 1
-                    
-                    # Enemy Max HP
+                
+                # Enemy statuses
+                for status_uid, (status, amount) in enemy.get_active_statuses().items():
                     check_context_size()
-                    token_types[position] = TokenType.ENTITY_MAX_HP.value
-                    encoded_numbers[position] = min(enemy.max_health, MAX_ENCODED_NUMBER)
-                    position += 1
                     
-                    # Enemy intent
-                    if hasattr(enemy, 'next_move') and enemy.next_move:
-                        check_context_size()
-                        token_types[position] = TokenType.ENEMY_INTENT.value
-                        if enemy.next_move.move_type in SUPPORTED_ENEMY_INTENT_TYPES:
-                            enemy_intent_indices[position] = SUPPORTED_ENEMY_INTENT_TYPES.index(enemy.next_move.move_type) + 1
-                        if hasattr(enemy.next_move, 'amount') and enemy.next_move.amount is not None:
-                            encoded_numbers[position] = min(enemy.next_move.amount, MAX_ENCODED_NUMBER)
+                    if status_uid in SUPPORTED_STATUS_UIDs:
+                        token_types[position] = TokenType.ENTITY_STATUS.value
+                        status_uid_indices[position] = SUPPORTED_STATUS_UIDs.index(status_uid) + 1
+                        encoded_numbers[position] = min(amount, MAX_ENCODED_NUMBER)
                         position += 1
-                    
-                    # Enemy statuses
-                    if hasattr(enemy, 'statuses'):
-                        for status in enemy.statuses:
-                            check_context_size()
-                            
-                            if status.uid in SUPPORTED_STATUS_UIDs:
-                                token_types[position] = TokenType.ENTITY_STATUS.value
-                                status_uid_indices[position] = SUPPORTED_STATUS_UIDs.index(status.uid) + 1
-                                encoded_numbers[position] = min(status.stacks, MAX_ENCODED_NUMBER)
-                                position += 1
         
         return token_types, card_uid_indices, status_uid_indices, enemy_intent_indices, encoded_numbers
+    
+    def record_action(
+        self, 
+        state_tensor: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
+        action_type: ActionType,
+        card_idx: Optional[int] = None,
+        target_idx: Optional[int] = None,
+        reward: float = 0.0
+    ) -> None:
+        """
+        Record an action taken in the given state.
+        
+        Args:
+            state_tensor: The tensor representation of the state before the action.
+            action_type: The type of action taken.
+            card_idx: The index of the card played (if applicable).
+            target_idx: The index of the target for the card (if applicable).
+            reward: The reward received for taking this action.
+        """
+        if self.config.mode != TensorizerMode.RECORD:
+            return
+            
+        step = PlaythroughStep(
+            state=state_tensor,
+            action_type=action_type,
+            card_idx=card_idx,
+            target_idx=target_idx,
+            reward=reward
+        )
+        self.playthrough_steps.append(step)
+    
+    def get_playthrough_data(self) -> List[PlaythroughStep]:
+        """Get the recorded playthrough data."""
+        return self.playthrough_steps
+    
+    def clear_playthrough_data(self) -> None:
+        """Clear the recorded playthrough data."""
+        self.playthrough_steps = []
+    
+    def record_play_card(
+        self, 
+        state: DeckbuilderSingleBattleEnv, 
+        card_idx: int, 
+        target_idx: int, 
+        reward: float = 0.0
+    ) -> None:
+        """
+        Record a 'play card' action.
+        
+        Args:
+            state: The current game state.
+            card_idx: The index of the card played.
+            target_idx: The index of the target.
+            reward: The reward received for this action.
+        """
+        if self.config.mode != TensorizerMode.RECORD:
+            return
+            
+        state_tensor = self.tensorize(state)
+        self.record_action(
+            state_tensor=state_tensor,
+            action_type=ActionType.PLAY_CARD,
+            card_idx=card_idx,
+            target_idx=target_idx,
+            reward=reward
+        )
+    
+    def record_end_turn(self, state: DeckbuilderSingleBattleEnv, reward: float = 0.0) -> None:
+        """
+        Record an 'end turn' action.
+        
+        Args:
+            state: The current game state.
+            reward: The reward received for this action.
+        """
+        if self.config.mode != TensorizerMode.RECORD:
+            return
+            
+        state_tensor = self.tensorize(state)
+        self.record_action(
+            state_tensor=state_tensor,
+            action_type=ActionType.END_TURN,
+            reward=reward
+        )
+    
+    def save_playthrough(self, filename: str) -> None:
+        """
+        Save the recorded playthrough data to a file.
+        
+        Args:
+            filename: The path to save the data to.
+        """
+        torch.save(self.playthrough_steps, filename)

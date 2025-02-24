@@ -21,6 +21,42 @@ source venv/bin/activate
 ```bash
 play_simple
 ```
+
+## Random Agent and Replay Explorer
+
+### Generating Random Playthroughs
+The project includes a random walk agent that makes random decisions and records the gameplay for later analysis:
+
+```bash
+# Generate a random playthrough with default settings
+random_walk
+
+# Specify a custom output file
+random_walk --output playthrough_data/my_custom_playthrough.pt
+```
+
+The random agent will:
+* Choose random cards to play (from those that it can afford with current energy)
+* Sometimes randomly end turns early
+* Record all states and actions in a tensor format
+* Save the entire playthrough to a binary file
+
+### Replaying Saved Playthroughs
+You can view saved playthroughs in a turn-by-turn format using the replay explorer:
+
+```bash
+# View a saved playthrough in turn-by-turn format
+replay_explorer playthrough_data/random_walk_playthrough.pt
+
+# Save the replay output to a file
+replay_explorer playthrough_data/random_walk_playthrough.pt > replay_output.txt
+```
+
+The replay explorer displays the entire playthrough chronologically, showing:
+* Turn structure (start turn, player actions, enemy phase, etc.)
+* Player and enemy stats at key points
+* All actions taken during the game
+
 ---
 # Roadmap
 
