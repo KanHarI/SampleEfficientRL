@@ -7,18 +7,18 @@ representation that can be used by downstream RL components.
 """
 
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Tuple, cast
 
-import torch
 import torch.nn as nn
 from torch import Tensor
 
-from SampleEfficientRL.Envs.Deckbuilder.Tensorizers.SingleBattleEnvTensorizer import (
-    MAX_ENCODED_NUMBER,
-    SUPPORTED_ENEMY_INTENT_TYPES,
-    SUPPORTED_CARDS_UIDs,
-    SUPPORTED_STATUS_UIDs,
-    TokenType,
+from SampleEfficientRL.Agents.RL.Networks.ObservationEmbedder import (
+    ObservationEmbedder,
+    ObservationEmbedderConfig,
+)
+from SampleEfficientRL.Agents.RL.Networks.ObservationNetwork import (
+    ObservationNetwork,
+    ObservationNetworkConfig,
 )
 
 
@@ -49,6 +49,30 @@ class ObservationBasenetConfig:
     # Maximum sequence length
     max_seq_len: int = 128
 
+    @property
+    def embedder_config(self) -> ObservationEmbedderConfig:
+        """Generate embedder config from the basenet config."""
+        return ObservationEmbedderConfig(
+            token_type_embedding_dim=self.token_type_embedding_dim,
+            card_embedding_dim=self.card_embedding_dim,
+            status_embedding_dim=self.status_embedding_dim,
+            intent_embedding_dim=self.intent_embedding_dim,
+            numerical_hidden_dim=self.hidden_dim // 2,
+            max_seq_len=self.max_seq_len,
+        )
+
+    def network_config(self, input_dim: int) -> ObservationNetworkConfig:
+        """Generate network config from the basenet config."""
+        return ObservationNetworkConfig(
+            input_dim=input_dim,
+            hidden_dim=self.hidden_dim,
+            latent_dim=self.latent_dim,
+            num_layers=self.num_layers,
+            dropout=self.dropout,
+            use_layer_norm=self.use_layer_norm,
+            num_heads=self.num_heads,
+        )
+
 
 class ObservationBasenet(nn.Module):
     """
@@ -68,98 +92,12 @@ class ObservationBasenet(nn.Module):
         super().__init__()
         self.config = config
 
-        # Token type embedding
-        self.token_type_embedding = nn.Embedding(
-            len(TokenType) + 1, config.token_type_embedding_dim  # +1 for padding
-        )
+        # Create embedder
+        self.embedder = ObservationEmbedder(config.embedder_config)
 
-        # Card embedding
-        # Add 1 to accommodate padding at index 0
-        self.card_embedding = nn.Embedding(
-            len(SUPPORTED_CARDS_UIDs) + 1, config.card_embedding_dim  # +1 for padding
-        )
-
-        # Status embedding
-        self.status_embedding = nn.Embedding(
-            len(SUPPORTED_STATUS_UIDs) + 1,  # +1 for padding
-            config.status_embedding_dim,
-        )
-
-        # Intent embedding
-        self.intent_embedding = nn.Embedding(
-            len(SUPPORTED_ENEMY_INTENT_TYPES) + 1,  # +1 for padding
-            config.intent_embedding_dim,
-        )
-
-        # Numerical value encoder
-        self.numerical_encoder = nn.Sequential(
-            nn.Linear(1, config.hidden_dim // 2),
-            nn.ReLU(),
-            nn.Linear(config.hidden_dim // 2, config.hidden_dim),
-            nn.ReLU(),
-        )
-
-        # Combined embedding dimension
-        combined_embedding_dim = (
-            config.token_type_embedding_dim
-            + config.card_embedding_dim
-            + config.status_embedding_dim
-            + config.intent_embedding_dim
-            + config.hidden_dim  # From numerical encoder
-        )
-
-        # Projection layer to unified hidden dimension
-        self.projection = nn.Linear(combined_embedding_dim, config.hidden_dim)
-
-        # Layer normalization
-        if config.use_layer_norm:
-            self.layer_norm = nn.LayerNorm(config.hidden_dim)
-
-        # Transformer or GRU layers for sequence processing
-        if config.num_layers > 0:
-            # Self-attention layers
-            self.self_attention_layers = nn.ModuleList(
-                [
-                    nn.MultiheadAttention(
-                        embed_dim=config.hidden_dim,
-                        num_heads=config.num_heads,
-                        dropout=config.dropout,
-                        batch_first=True,
-                    )
-                    for _ in range(config.num_layers)
-                ]
-            )
-
-            # Feed-forward networks after attention
-            self.feed_forward_layers = nn.ModuleList(
-                [
-                    nn.Sequential(
-                        nn.Linear(config.hidden_dim, config.hidden_dim * 4),
-                        nn.ReLU(),
-                        nn.Dropout(config.dropout),
-                        nn.Linear(config.hidden_dim * 4, config.hidden_dim),
-                        nn.Dropout(config.dropout),
-                    )
-                    for _ in range(config.num_layers)
-                ]
-            )
-
-            if config.use_layer_norm:
-                self.attention_layer_norms = nn.ModuleList(
-                    [nn.LayerNorm(config.hidden_dim) for _ in range(config.num_layers)]
-                )
-
-                self.ffn_layer_norms = nn.ModuleList(
-                    [nn.LayerNorm(config.hidden_dim) for _ in range(config.num_layers)]
-                )
-
-        # Final output head
-        self.output_head = nn.Sequential(
-            nn.Linear(config.hidden_dim, config.hidden_dim * 2),
-            nn.ReLU(),
-            nn.Dropout(config.dropout),
-            nn.Linear(config.hidden_dim * 2, config.latent_dim),
-        )
+        # Create network
+        network_config = config.network_config(self.embedder.embedding_dim)
+        self.network = ObservationNetwork(network_config)
 
     def forward(
         self,
@@ -179,108 +117,13 @@ class ObservationBasenet(nn.Module):
         Returns:
             A [batch_size, latent_dim] tensor representing the game state.
         """
-        (
-            token_types,
-            card_uid_indices,
-            status_uid_indices,
-            enemy_intent_indices,
-            encoded_numbers,
-        ) = state_tuple
+        # Get embedded features and padding mask from embedder
+        embedded_features, padding_mask = self.embedder(state_tuple)
 
-        # Get original shape and ensure sequence length doesn't exceed max_seq_len
-        seq_len = min(token_types.size(-1), self.config.max_seq_len)
+        # Process embedded features through network
+        latent_representation = self.network(embedded_features, padding_mask)
 
-        # Reshape inputs to include batch dimension if needed
-        if token_types.dim() == 1:  # If no batch dimension
-            token_types = token_types.unsqueeze(0)
-            card_uid_indices = card_uid_indices.unsqueeze(0)
-            status_uid_indices = status_uid_indices.unsqueeze(0)
-            enemy_intent_indices = enemy_intent_indices.unsqueeze(0)
-            encoded_numbers = encoded_numbers.unsqueeze(0)
-
-        # Limit sequence length to max_seq_len
-        token_types = token_types[:, :seq_len]
-        card_uid_indices = card_uid_indices[:, :seq_len]
-        status_uid_indices = status_uid_indices[:, :seq_len]
-        enemy_intent_indices = enemy_intent_indices[:, :seq_len]
-        encoded_numbers = encoded_numbers[:, :seq_len]
-
-        # Create mask for padding positions (where token_types is 0)
-        padding_mask = token_types == 0
-
-        # Apply embeddings
-        token_embeddings = self.token_type_embedding(token_types)
-        card_embeddings = self.card_embedding(card_uid_indices)
-        status_embeddings = self.status_embedding(status_uid_indices)
-        intent_embeddings = self.intent_embedding(enemy_intent_indices)
-
-        # Process numerical values
-        # Normalize to [0, 1] range based on MAX_ENCODED_NUMBER
-        normalized_numbers = encoded_numbers.float() / MAX_ENCODED_NUMBER
-        normalized_numbers = normalized_numbers.unsqueeze(-1)  # Add feature dimension
-        numeric_embeddings = self.numerical_encoder(normalized_numbers)
-
-        # Combine all embeddings
-        combined_embeddings = torch.cat(
-            [
-                token_embeddings,
-                card_embeddings,
-                status_embeddings,
-                intent_embeddings,
-                numeric_embeddings,
-            ],
-            dim=-1,
-        )
-
-        # Project to hidden dimension
-        hidden_states = self.projection(combined_embeddings)
-
-        # Apply layer normalization
-        if self.config.use_layer_norm:
-            hidden_states = self.layer_norm(hidden_states)
-
-        # Process through transformer/self-attention layers
-        if self.config.num_layers > 0:
-            # Using key_padding_mask is sufficient for handling padding in MultiheadAttention
-            # The key_padding_mask will prevent attention to padded positions
-
-            for i in range(self.config.num_layers):
-                # Self-attention layer
-                attn_output, _ = self.self_attention_layers[i](
-                    query=hidden_states,
-                    key=hidden_states,
-                    value=hidden_states,
-                    key_padding_mask=padding_mask,  # This handles the padding correctly
-                    need_weights=False,
-                )
-
-                # Residual connection and layer norm
-                hidden_states = hidden_states + attn_output
-                if self.config.use_layer_norm:
-                    hidden_states = self.attention_layer_norms[i](hidden_states)
-
-                # Feed-forward network
-                ffn_output = self.feed_forward_layers[i](hidden_states)
-
-                # Residual connection and layer norm
-                hidden_states = hidden_states + ffn_output
-                if self.config.use_layer_norm:
-                    hidden_states = self.ffn_layer_norms[i](hidden_states)
-
-        # Create a context vector by averaging the non-padded tokens
-        # Mask padded positions
-        mask = ~padding_mask  # True for non-padded positions
-        mask = mask.float().unsqueeze(-1)
-
-        # Apply mask and compute mean
-        context_vector = (hidden_states * mask).sum(dim=1) / mask.sum(dim=1).clamp(
-            min=1
-        )
-
-        # Apply output head to get final latent representation
-        latent_representation = self.output_head(context_vector)
-
-        return Tensor(latent_representation)
+        return cast(Tensor, latent_representation)
 
 
 def observation_basenet_small() -> ObservationBasenet:
