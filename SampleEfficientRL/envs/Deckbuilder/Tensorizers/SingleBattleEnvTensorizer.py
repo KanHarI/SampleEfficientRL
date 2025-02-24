@@ -1,10 +1,15 @@
-
-
 from dataclasses import dataclass
 from enum import Enum
-from typing import List
-from SampleEfficientRL.Envs.Deckbuilder.Card import CardUIDs
+from typing import List, Tuple
 
+import torch
+
+from SampleEfficientRL.Envs.Deckbuilder.Card import CardUIDs
+from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
+    DeckbuilderSingleBattleEnv,
+)
+from SampleEfficientRL.Envs.Deckbuilder.Opponent import NextMoveType
+from SampleEfficientRL.Envs.Deckbuilder.Status import StatusUIDs
 
 # Warning: changing this list will invalidate all the pre-trained models weights
 SUPPORTED_CARDS_UIDs: List[CardUIDs] = [
@@ -13,6 +18,21 @@ SUPPORTED_CARDS_UIDs: List[CardUIDs] = [
     CardUIDs.DEFEND,
 ]
 
+SUPPORTED_STATUS_UIDs: List[StatusUIDs] = [
+    StatusUIDs.BLOCK,
+    StatusUIDs.VULNERABLE,
+    StatusUIDs.RITUAL,
+    StatusUIDs.STRENGTH,
+    StatusUIDs.ENERGY_USER,
+    StatusUIDs.HAND_DRAWER,
+]
+
+SUPPORTED_ENEMY_INTENT_TYPES: List[NextMoveType] = [
+    NextMoveType.ATTACK,
+    NextMoveType.RITUAL,
+]
+
+
 class ENTITY_TYPE(Enum):
     PLAYER = 0
     ENEMY_1 = 1
@@ -20,6 +40,7 @@ class ENTITY_TYPE(Enum):
     ENEMY_3 = 3
     ENEMY_4 = 4
     ENEMY_5 = 5
+    ENEMY_6 = 6
 
 class TokenType(Enum):
     DRAW_DECK_CARD = 0
@@ -29,10 +50,163 @@ class TokenType(Enum):
     ENTITY_MAX_HP = 4
     ENTITY_ENERGY = 5
     ENTITY_STATUS = 5
-    
-    
+    ENEMY_INTENT = 6
+
+
+NUM_MAX_ENEMIES = ENTITY_TYPE.ENEMY_6.value
+
+MAX_ENCODED_NUMBER = 1023
+BINARY_NUMBER_BITS = 10
+SCALAR_NUMBER_DIMS = 1
+LOG_NUMBER_DIMS = 1
+
 
 @dataclass
 class SingleBattleEnvTensorizerConfig:
-    token_type_dims: int
+    """
+    Input for this tensorizer is the current state of the environment
+    Output is (savable, serializable) tensor representation of the state
+    """
+    context_size: int
 
+
+class SingleBattleEnvTensorizer:
+    def __init__(self, config: SingleBattleEnvTensorizerConfig):
+        self.config = config
+
+    # Return tensors tuple:
+    # Token types,
+    # Card uid indices,
+    # Status uid indices,
+    # Enemy intent type indices,
+    # Encoded numbers,
+    def tensorize(
+        self, state: DeckbuilderSingleBattleEnv
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Converts the current state of the environment into a tensor representation.
+        
+        Args:
+            state: The current state of the environment.
+            
+        Returns:
+            A tuple of tensors:
+            - token_types: The types of tokens in the context.
+            - card_uid_indices: The indices of card UIDs in the context.
+            - status_uid_indices: The indices of status UIDs in the context.
+            - enemy_intent_indices: The indices of enemy intent types in the context.
+            - encoded_numbers: The encoded numerical values in the context.
+            
+        Raises:
+            ValueError: If the state representation exceeds the configured context size.
+        """
+        # Initialize tensors with zeros
+        token_types = torch.zeros(self.config.context_size, dtype=torch.long)
+        card_uid_indices = torch.zeros(self.config.context_size, dtype=torch.long)
+        status_uid_indices = torch.zeros(self.config.context_size, dtype=torch.long)
+        enemy_intent_indices = torch.zeros(self.config.context_size, dtype=torch.long)
+        encoded_numbers = torch.zeros(self.config.context_size, dtype=torch.long)
+        
+        position = 0
+        
+        def check_context_size():
+            nonlocal position
+            if position >= self.config.context_size:
+                raise ValueError(f"State representation exceeds configured context size of {self.config.context_size}")
+        
+        # Encode player's draw pile
+        for card in state.player.draw_pile:
+            check_context_size()
+            
+            token_types[position] = TokenType.DRAW_DECK_CARD.value
+            if card.uid in SUPPORTED_CARDS_UIDs:
+                card_uid_indices[position] = SUPPORTED_CARDS_UIDs.index(card.uid) + 1  # +1 for padding
+            
+            position += 1
+        
+        # Encode player's discard pile
+        for card in state.player.discard_pile:
+            check_context_size()
+            
+            token_types[position] = TokenType.DISCARD_DECK_CARD.value
+            if card.uid in SUPPORTED_CARDS_UIDs:
+                card_uid_indices[position] = SUPPORTED_CARDS_UIDs.index(card.uid) + 1
+            
+            position += 1
+        
+        # Encode player's hand
+        for card in state.player.hand:
+            check_context_size()
+            
+            # Using draw deck token type for hand cards since there's no specific hand token
+            token_types[position] = TokenType.DRAW_DECK_CARD.value
+            if card.uid in SUPPORTED_CARDS_UIDs:
+                card_uid_indices[position] = SUPPORTED_CARDS_UIDs.index(card.uid) + 1
+            
+            position += 1
+        
+        # Encode player entity information
+        check_context_size()
+        token_types[position] = TokenType.ENTITY_HP.value
+        encoded_numbers[position] = min(state.player.health, MAX_ENCODED_NUMBER)
+        position += 1
+        
+        check_context_size()
+        token_types[position] = TokenType.ENTITY_MAX_HP.value
+        encoded_numbers[position] = min(state.player.max_health, MAX_ENCODED_NUMBER)
+        position += 1
+        
+        check_context_size()
+        token_types[position] = TokenType.ENTITY_ENERGY.value
+        encoded_numbers[position] = min(state.player.energy, MAX_ENCODED_NUMBER)
+        position += 1
+        
+        # Encode player statuses
+        if hasattr(state.player, 'statuses'):
+            for status in state.player.statuses:
+                check_context_size()
+                
+                if status.uid in SUPPORTED_STATUS_UIDs:
+                    token_types[position] = TokenType.ENTITY_STATUS.value
+                    status_uid_indices[position] = SUPPORTED_STATUS_UIDs.index(status.uid) + 1
+                    encoded_numbers[position] = min(status.stacks, MAX_ENCODED_NUMBER)
+                    position += 1
+        
+        # Encode enemies
+        if hasattr(state, 'enemies'):
+            for enemy_idx, enemy in enumerate(state.enemies):
+                if not hasattr(enemy, 'is_alive') or enemy.is_alive:
+                    # Enemy HP
+                    check_context_size()
+                    token_types[position] = TokenType.ENTITY_HP.value
+                    encoded_numbers[position] = min(enemy.health, MAX_ENCODED_NUMBER)
+                    position += 1
+                    
+                    # Enemy Max HP
+                    check_context_size()
+                    token_types[position] = TokenType.ENTITY_MAX_HP.value
+                    encoded_numbers[position] = min(enemy.max_health, MAX_ENCODED_NUMBER)
+                    position += 1
+                    
+                    # Enemy intent
+                    if hasattr(enemy, 'next_move') and enemy.next_move:
+                        check_context_size()
+                        token_types[position] = TokenType.ENEMY_INTENT.value
+                        if enemy.next_move.move_type in SUPPORTED_ENEMY_INTENT_TYPES:
+                            enemy_intent_indices[position] = SUPPORTED_ENEMY_INTENT_TYPES.index(enemy.next_move.move_type) + 1
+                        if hasattr(enemy.next_move, 'amount') and enemy.next_move.amount is not None:
+                            encoded_numbers[position] = min(enemy.next_move.amount, MAX_ENCODED_NUMBER)
+                        position += 1
+                    
+                    # Enemy statuses
+                    if hasattr(enemy, 'statuses'):
+                        for status in enemy.statuses:
+                            check_context_size()
+                            
+                            if status.uid in SUPPORTED_STATUS_UIDs:
+                                token_types[position] = TokenType.ENTITY_STATUS.value
+                                status_uid_indices[position] = SUPPORTED_STATUS_UIDs.index(status.uid) + 1
+                                encoded_numbers[position] = min(status.stacks, MAX_ENCODED_NUMBER)
+                                position += 1
+        
+        return token_types, card_uid_indices, status_uid_indices, enemy_intent_indices, encoded_numbers
