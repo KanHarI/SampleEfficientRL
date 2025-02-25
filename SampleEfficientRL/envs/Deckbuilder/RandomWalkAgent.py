@@ -59,8 +59,55 @@ class RandomWalkAgent:
         if player is None:
             raise ValueError("Player is not set")
 
-        # Record initial state at start of turn (no longer needed with tensorizer recording)
-        # self.record_state()
+        # Print more detailed state information at the beginning of turn
+        self.output.print_separator()
+        self.output.print("Current State:")
+        self.output.print_player_info(
+            player.current_health, player.max_health, player.energy
+        )
+
+        # Print player hand
+        self.output.print("Player Hand:")
+        for i, card in enumerate(player.hand):
+            self.output.print_card(i, card.card_uid.name, card.cost)
+
+        # Print discard pile
+        self.output.print("Discard Pile:")
+        for i, card in enumerate(player.discard_pile):
+            self.output.print_card(i, card.card_uid.name, card.cost)
+
+        # Print player statuses if any
+        if hasattr(player, "get_active_statuses"):
+            self.output.print("Player Statuses:")
+            for status_uid, (status, amount) in player.get_active_statuses().items():
+                self.output.print_status(status_uid.name, amount)
+
+        # Print opponent information
+        if self.env.opponents and len(self.env.opponents) > 0:
+            opponent = self.env.opponents[0]
+            self.output.print(
+                f"Opponent HP: {opponent.current_health}/{opponent.max_health}"
+            )
+
+            # Print opponent statuses if any
+            if hasattr(opponent, "get_active_statuses"):
+                self.output.print("Opponent Statuses:")
+                for status_uid, (
+                    status,
+                    amount,
+                ) in opponent.get_active_statuses().items():
+                    self.output.print_status(status_uid.name, amount)
+
+            # Print opponent intent
+            self.output.print("Opponent action:")
+            if opponent.next_move:
+                amount = 0
+                if opponent.next_move.amount is not None:
+                    amount = opponent.next_move.amount
+                self.output.print_opponent_intent(
+                    opponent.next_move.move_type.name, amount
+                )
+        self.output.print_separator()
 
         while True:
             # Randomly decide whether to end the turn prematurely
@@ -102,8 +149,25 @@ class RandomWalkAgent:
             elif result == PlayCardResult.CARD_PLAYED_SUCCESSFULLY:
                 self.output.print_play_result("Card played successfully")
 
-            # Record state after playing card (no longer needed with tensorizer recording)
-            # self.record_state()
+            # After playing a card, print the updated state
+            self.output.print_separator()
+            self.output.print("Updated State after playing card:")
+            self.output.print_player_info(
+                player.current_health, player.max_health, player.energy
+            )
+
+            # Print updated player hand
+            self.output.print("Player Hand:")
+            for i, card in enumerate(player.hand):
+                self.output.print_card(i, card.card_uid.name, card.cost)
+
+            # Print updated opponent information
+            if self.env.opponents and len(self.env.opponents) > 0:
+                opponent = self.env.opponents[0]
+                self.output.print(
+                    f"Opponent HP: {opponent.current_health}/{opponent.max_health}"
+                )
+            self.output.print_separator()
 
             # Check for game-ending events
             events = self.env.emit_events()

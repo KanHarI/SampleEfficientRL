@@ -1,19 +1,16 @@
 import argparse
 import os
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, cast
 
 import torch
 
 from SampleEfficientRL.Envs.Deckbuilder.GameOutputManager import GameOutputManager
+from SampleEfficientRL.Envs.Deckbuilder.Tensorizers.SingleBattleEnvDetensorizer import (
+    SingleBattleEnvDetensorizer,
+)
 from SampleEfficientRL.Envs.Deckbuilder.Tensorizers.SingleBattleEnvTensorizer import (
-    BINARY_NUMBER_BITS,
-    MAX_ENCODED_NUMBER,
-    SUPPORTED_ENEMY_INTENT_TYPES,
     ActionType,
     PlaythroughStep,
-    SUPPORTED_CARDS_UIDs,
-    SUPPORTED_STATUS_UIDs,
-    TokenType,
 )
 
 
@@ -56,16 +53,8 @@ class ReplayExplorer:
 
         self.total_steps = len(self.playthrough_data)
 
-        # Mapping dictionaries for readable output
-        self.card_uid_map: Dict[int, str] = {
-            i + 1: uid.name for i, uid in enumerate(SUPPORTED_CARDS_UIDs)
-        }
-        self.status_uid_map: Dict[int, str] = {
-            i + 1: uid.name for i, uid in enumerate(SUPPORTED_STATUS_UIDs)
-        }
-        self.intent_type_map: Dict[int, str] = {
-            i + 1: intent.name for i, intent in enumerate(SUPPORTED_ENEMY_INTENT_TYPES)
-        }
+        # Create detensorizer for accurate state reconstruction
+        self.detensorizer = SingleBattleEnvDetensorizer()
 
         self.output.print(
             f"Loaded replay with {self.total_steps} steps from {replay_path}"
@@ -74,177 +63,6 @@ class ReplayExplorer:
             self.output.print(
                 "NOTE: This is a simple state-only replay without action information"
             )
-
-    def _extract_numeric_value(self, encoded_number_tensor: torch.Tensor) -> int:
-        """
-        Extract the scalar numeric value from the encoded number tensor.
-
-        Args:
-            encoded_number_tensor: The encoded number tensor with shape (NUMBER_ENCODING_DIMS,)
-
-        Returns:
-            The integer value represented by this encoding
-        """
-        # Extract the scalar value (at position BINARY_NUMBER_BITS) and unnormalize it
-        scalar_index = BINARY_NUMBER_BITS
-        scalar_value = encoded_number_tensor[scalar_index].item() * MAX_ENCODED_NUMBER
-        return int(scalar_value)
-
-    def _decode_state(self, step: PlaythroughStep) -> Dict[str, Any]:
-        """
-        Decode a step's state tensors into a readable format.
-
-        Args:
-            step: The PlaythroughStep to decode
-
-        Returns:
-            A dictionary with decoded state information
-        """
-        (
-            token_types,
-            card_uid_indices,
-            status_uid_indices,
-            enemy_intent_indices,
-            encoded_numbers,
-        ) = step.state
-
-        # Initialize state container
-        state: Dict[str, Any] = {
-            "player": {
-                "hp": 0,
-                "max_hp": 0,
-                "energy": 0,
-                "hand": [],
-                "draw_pile": [],
-                "discard_pile": [],
-                "statuses": {},
-            },
-            "enemies": [],
-            "action": {
-                "type": step.action_type.name,
-                "card_idx": step.card_idx,
-                "target_idx": step.target_idx,
-                "reward": step.reward,
-            },
-        }
-
-        # Process each token in the state
-        current_enemy: Optional[Dict[str, Any]] = None
-
-        for i in range(token_types.size(0)):
-            # Skip zero tokens (padding)
-            if token_types[i].item() == 0 and i > 0:
-                continue
-
-            token_type = int(token_types[i].item())
-
-            # Handle draw deck cards
-            if token_type == TokenType.DRAW_DECK_CARD.value:
-                card_idx = int(card_uid_indices[i].item())
-                if card_idx > 0:
-                    card_name = self.card_uid_map.get(card_idx, f"Unknown({card_idx})")
-                    # First few cards are considered hand, if there are no specific tokens for hand
-                    if (
-                        len(state["player"]["hand"]) < 5
-                        and len(state["player"]["draw_pile"]) == 0
-                    ):
-                        state["player"]["hand"].append(
-                            {
-                                "name": card_name,
-                                "cost": 1,  # Default cost, we don't have actual cost in tensor
-                            }
-                        )
-                    else:
-                        state["player"]["draw_pile"].append(
-                            {
-                                "name": card_name,
-                                "cost": 1,  # Default cost, we don't have actual cost in tensor
-                            }
-                        )
-
-            # Handle discard pile cards
-            elif token_type == TokenType.DISCARD_DECK_CARD.value:
-                card_idx = int(card_uid_indices[i].item())
-                if card_idx > 0:
-                    card_name = self.card_uid_map.get(card_idx, f"Unknown({card_idx})")
-                    state["player"]["discard_pile"].append(
-                        {
-                            "name": card_name,
-                            "cost": 1,  # Default cost, we don't have actual cost in tensor
-                        }
-                    )
-
-            # Handle entity HP
-            elif token_type == TokenType.ENTITY_HP.value:
-                hp_value = self._extract_numeric_value(encoded_numbers[i])
-                # If we don't have player HP yet, this is player HP
-                if state["player"]["hp"] == 0:
-                    state["player"]["hp"] = hp_value
-                else:
-                    # Create a new enemy if needed
-                    if current_enemy is None:
-                        current_enemy = {
-                            "hp": 0,
-                            "max_hp": 0,
-                            "intent": None,
-                            "statuses": {},
-                        }
-                    current_enemy["hp"] = hp_value
-
-            # Handle entity max HP
-            elif token_type == TokenType.ENTITY_MAX_HP.value:
-                max_hp_value = self._extract_numeric_value(encoded_numbers[i])
-                # If we don't have player max HP yet, this is player max HP
-                if state["player"]["max_hp"] == 0:
-                    state["player"]["max_hp"] = max_hp_value
-                elif current_enemy is not None:
-                    current_enemy["max_hp"] = max_hp_value
-                    # Add enemy to list if we have all required info
-                    if current_enemy["hp"] > 0 and current_enemy["max_hp"] > 0:
-                        state["enemies"].append(current_enemy)
-                        current_enemy = None
-
-            # Handle entity energy
-            elif token_type == TokenType.ENTITY_ENERGY.value:
-                state["player"]["energy"] = self._extract_numeric_value(
-                    encoded_numbers[i]
-                )
-
-            # Handle entity status
-            elif token_type == TokenType.ENTITY_STATUS.value:
-                status_idx = int(status_uid_indices[i].item())
-                status_amount = self._extract_numeric_value(encoded_numbers[i])
-                if status_idx > 0:
-                    status_name = self.status_uid_map.get(
-                        status_idx, f"Unknown({status_idx})"
-                    )
-                    # If we don't have enemy yet or have added it to list, this is player status
-                    if current_enemy is None or current_enemy in state["enemies"]:
-                        player_statuses = state["player"]["statuses"]
-                        player_statuses[status_name] = status_amount
-                    else:
-                        if current_enemy is not None:
-                            enemy_statuses = current_enemy["statuses"]
-                            enemy_statuses[status_name] = status_amount
-
-            # Handle enemy intent
-            elif token_type == TokenType.ENEMY_INTENT.value:
-                intent_idx = int(enemy_intent_indices[i].item())
-                intent_amount = self._extract_numeric_value(encoded_numbers[i])
-                if intent_idx > 0 and current_enemy is not None:
-                    intent_name = self.intent_type_map.get(
-                        intent_idx, f"Unknown({intent_idx})"
-                    )
-                    current_enemy["intent"] = {
-                        "name": intent_name,
-                        "amount": intent_amount,
-                    }
-
-        # Make sure all enemies are added
-        if current_enemy is not None and current_enemy not in state["enemies"]:
-            state["enemies"].append(current_enemy)
-
-        return state
 
     def print_state_summary(self, step_idx: int, decoded_state: Dict[str, Any]) -> None:
         """Print a summary of the state for one step."""
@@ -255,7 +73,7 @@ class ReplayExplorer:
         # Enemies info
         for i, enemy in enumerate(decoded_state["enemies"]):
             self.output.print_opponent_info(i + 1, enemy["hp"], enemy["max_hp"])
-            if enemy["intent"]:
+            if enemy.get("intent"):
                 self.output.print_opponent_intent(
                     enemy["intent"]["name"], enemy["intent"]["amount"]
                 )
@@ -280,7 +98,8 @@ class ReplayExplorer:
                 self.output.print_player_action(action_type, None, card_idx, target_idx)
         elif action_type == "END_TURN":
             self.output.print_player_action(action_type)
-        elif action_type == "NO_OP":
+        else:
+            # Regular NO_OP
             self.output.print_player_action(action_type)
 
     def print_full_replay(self) -> None:
@@ -288,85 +107,171 @@ class ReplayExplorer:
         self.output.print_separator()
         self.output.print_header("FULL REPLAY")
 
-        # For simple state format without action information, use a simplified display
-        if self.is_simple_tuple_format:
-            for step_idx in range(self.total_steps):
-                self.output.print(f"STATE {step_idx + 1}")
-                self.output.print_separator()
-
-                step = self.playthrough_data[step_idx]
-                decoded_state = self._decode_state(step)
-
-                self.print_state_summary(step_idx, decoded_state)
-                self.output.print_separator()
-
-            self.output.print_header("END OF REPLAY")
-            return
-
         # For full PlaythroughStep format with action information, use the detailed display
         current_turn = 1
-        player_turn = True
-        in_enemy_phase = False
 
-        # First step is always start of turn 1
-        self.output.print(f"START TURN {current_turn}")
-        self.output.print_separator()
+        # Track opponent actions to ensure they are properly displayed
+        opponent_actions_by_turn = {}
 
-        for step_idx in range(self.total_steps):
-            step = self.playthrough_data[step_idx]
-            decoded_state = self._decode_state(step)
-            action_type = step.action_type
+        # First pass: identify opponent actions that follow END_TURN
+        for step_idx in range(len(self.playthrough_data) - 1):
+            current_step = self.playthrough_data[step_idx]
+            next_step = self.playthrough_data[step_idx + 1]
 
-            # Print state at the start of each turn or phase
-            if step_idx == 0 or (
-                step_idx > 0
-                and (
-                    # Start of player turn (we just detected a new turn)
-                    (player_turn and not in_enemy_phase)
-                    or
-                    # Start of enemy phase
-                    (
-                        in_enemy_phase
-                        and step_idx > 0
-                        and self.playthrough_data[step_idx - 1].action_type
-                        == ActionType.END_TURN
-                        and action_type == ActionType.NO_OP
-                    )
-                )
+            # Check if this is an end turn followed by a potential opponent action state
+            if (
+                self.detensorizer.is_end_turn_state(current_step)
+                and next_step.action_type == ActionType.NO_OP
             ):
-                self.print_state_summary(step_idx, decoded_state)
-                self.output.print("")
+                # Decode the next state and check for opponent action
+                next_state = self.detensorizer.decode_state(next_step)
+                opponent_action = self.detensorizer.decode_opponent_action(next_state)
 
-            # Print the action
-            self.print_action_summary(step_idx, decoded_state)
+                if opponent_action:
+                    # Store by turn number for later display
+                    opponent_actions_by_turn[current_turn] = opponent_action
 
-            # Detect phase transitions
-            if action_type == ActionType.END_TURN:
-                if player_turn and not in_enemy_phase:
-                    # Player turn ending, moving to enemy phase
-                    self.output.print(f"END OF PLAYER PHASE (TURN {current_turn})")
-                    self.output.print("")
-                    in_enemy_phase = True
-
-                    # Print enemy phase header if there's a next step and it's a NO_OP
-                    if (
-                        step_idx + 1 < self.total_steps
-                        and self.playthrough_data[step_idx + 1].action_type
-                        == ActionType.NO_OP
-                    ):
-                        self.output.print(f"ENEMY PHASE (TURN {current_turn})")
-
-                elif in_enemy_phase:
-                    # Enemy phase ending, moving to next player turn
-                    self.output.print("")
-                    in_enemy_phase = False
-                    player_turn = True
+            # Track turn transitions
+            if step_idx > 0 and self.detensorizer.is_end_turn_state(
+                self.playthrough_data[step_idx - 1]
+            ):
+                if next_step.action_type == ActionType.NO_OP and step_idx + 2 < len(
+                    self.playthrough_data
+                ):
+                    # This is a turn transition (END_TURN -> NO_OP -> next turn)
                     current_turn += 1
 
-                    # Print next turn header if there's a next step
-                    if step_idx + 1 < self.total_steps:
-                        self.output.print(f"START TURN {current_turn}")
-                        self.output.print_separator()
+        # Reset for the actual printing
+        current_turn = 1
+        is_turn_start = True
+
+        # Create a mapping to track which steps represent end of player turns
+        end_turn_steps = set()
+        opponent_action_steps = set()
+
+        # Identify all end turn and opponent action steps
+        for step_idx in range(len(self.playthrough_data)):
+            step = self.playthrough_data[step_idx]
+            if step.action_type == ActionType.END_TURN:
+                end_turn_steps.add(step_idx)
+            elif (
+                step.action_type == ActionType.NO_OP
+                and step_idx > 0
+                and self.playthrough_data[step_idx - 1].action_type
+                == ActionType.END_TURN
+            ):
+                opponent_action_steps.add(step_idx)
+
+        current_turn = 1
+        for step_idx in range(len(self.playthrough_data)):
+            step = self.playthrough_data[step_idx]
+            decoded_state = self.detensorizer.decode_state(step)
+
+            # Check if we're starting a new turn
+            if is_turn_start:
+                self.output.print_separator()
+                self.output.print_subheader(f"Playing turn {current_turn}")
+                self.output.print_separator()
+
+                # Print detailed state information
+                self.output.print_separator()
+                self.output.print("Current State:")
+
+                # Player info
+                player = decoded_state["player"]
+                self.output.print_player_info(
+                    player["hp"], player["max_hp"], player["energy"]
+                )
+
+                # Print player hand
+                if player["hand"]:
+                    self.output.print("Player Hand:")
+                    for i, card in enumerate(player["hand"]):
+                        self.output.print_card(i, card["name"], card.get("cost", 1))
+
+                # Print discard pile if not empty
+                if player["discard_pile"]:
+                    self.output.print("Discard Pile:")
+                    for i, card in enumerate(player["discard_pile"]):
+                        self.output.print_card(i, card["name"], card.get("cost", 1))
+
+                # Print player statuses
+                if player["statuses"]:
+                    self.output.print("Player Statuses:")
+                    for status_name, amount in player["statuses"].items():
+                        self.output.print_status(status_name, amount)
+
+                # Print opponent information
+                for enemy_idx, enemy in enumerate(decoded_state.get("enemies", [])):
+                    self.output.print(
+                        f"Opponent {enemy_idx+1} HP: {enemy['hp']}/{enemy['max_hp']}"
+                    )
+
+                    # Print opponent statuses
+                    if enemy.get("statuses"):
+                        self.output.print("Opponent Statuses:")
+                        for status_name, amount in enemy["statuses"].items():
+                            self.output.print_status(status_name, amount)
+
+                    # Print opponent intent
+                    if enemy.get("intent"):
+                        self.output.print("Opponent action:")
+                        self.output.print(
+                            f"  Intent: {enemy['intent']['name']} with amount {enemy['intent']['amount']}"
+                        )
+
+                self.output.print_separator()
+                is_turn_start = False
+
+            # Determine if this is a special step
+            is_opponent_action = step_idx in opponent_action_steps
+
+            # Skip printing opponent action steps here - we'll handle them after end turn
+            if is_opponent_action:
+                continue
+
+            # Print action based on type
+            if step.action_type == ActionType.PLAY_CARD:
+                self.output.print("  Action: PLAY_CARD")
+
+                # After playing a card, print the updated state
+                self.output.print_separator()
+                self.output.print("Updated State after playing card:")
+                player = decoded_state["player"]
+                self.output.print_player_info(
+                    player["hp"], player["max_hp"], player["energy"]
+                )
+
+                # Print updated player hand
+                if player["hand"]:
+                    self.output.print("Player Hand:")
+                    for i, card in enumerate(player["hand"]):
+                        self.output.print_card(i, card["name"], card.get("cost", 1))
+
+                # Print updated opponent information
+                for enemy_idx, enemy in enumerate(decoded_state.get("enemies", [])):
+                    self.output.print(
+                        f"Opponent {enemy_idx+1} HP: {enemy['hp']}/{enemy['max_hp']}"
+                    )
+
+                self.output.print_separator()
+            elif step.action_type == ActionType.END_TURN:
+                self.output.print("  Action: End Turn")
+
+                # Print opponent action after the end turn
+                if current_turn in opponent_actions_by_turn:
+                    opponent_action = opponent_actions_by_turn[current_turn]
+                    self.output.print(
+                        f"Opponent {opponent_action['type']} action: {opponent_action['action']} with amount {opponent_action['amount']}."
+                    )
+
+                # The next non-opponent-action step will be a new turn
+                is_turn_start = True
+                current_turn += 1
+            elif step.action_type == ActionType.NO_OP:
+                # Only print NO_OP if it's a meaningful operation
+                if not is_opponent_action:
+                    self.output.print("  Action: No Operation")
 
         self.output.print_separator()
         self.output.print_header("END OF REPLAY")
