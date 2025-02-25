@@ -7,6 +7,7 @@ import torch
 
 from SampleEfficientRL.Envs.Deckbuilder.Tensorizers.SingleBattleEnvTensorizer import (
     BINARY_NUMBER_BITS,
+    CURRENT_TENSORIZER_VERSION,
     MAX_ENCODED_NUMBER,
     NUMBER_ENCODING_DIMS,
     SUPPORTED_ENEMY_INTENT_TYPES,
@@ -25,13 +26,12 @@ def print_separator() -> None:
 
 
 class ReplayExplorer:
-    def __init__(self, replay_path: str, required_version: Optional[str] = None):
+    def __init__(self, replay_path: str):
         """
         Initialize the replay explorer with a path to a replay file.
 
         Args:
             replay_path: Path to the replay file
-            required_version: If provided, check that the replay is compatible with this version
         """
         self.replay_path = replay_path
         # Add PlaythroughStep and ReplayMetadata to safe globals for loading
@@ -54,10 +54,7 @@ class ReplayExplorer:
             loaded_data = raw_data["playthrough_steps"]
 
             # Check version compatibility if required
-            if (
-                required_version is not None
-                and self.metadata.version != required_version
-            ):
+            if self.metadata.version != CURRENT_TENSORIZER_VERSION:
                 print(
                     f"WARNING: Replay version ({self.metadata.version}) doesn't match required version ({required_version})"
                 )

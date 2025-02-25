@@ -13,6 +13,8 @@ from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
 from SampleEfficientRL.Envs.Deckbuilder.Opponent import NextMoveType
 from SampleEfficientRL.Envs.Deckbuilder.Status import StatusUIDs
 
+CURRENT_TENSORIZER_VERSION = "1.0.0"
+
 # Warning: changing this list will invalidate all the pre-trained models weights
 SUPPORTED_CARDS_UIDs: List[CardUIDs] = [
     CardUIDs.BASH,
@@ -402,9 +404,7 @@ class SingleBattleEnvTensorizer:
             state_tensor=state_tensor, action_type=ActionType.END_TURN, reward=reward
         )
 
-    def save_playthrough(
-        self, filename: str, version: str = "1.0.0", notes: Optional[str] = None
-    ) -> None:
+    def save_playthrough(self, filename: str, notes: Optional[str] = None) -> None:
         """
         Save the recorded playthrough data to a file with metadata.
 
@@ -414,7 +414,9 @@ class SingleBattleEnvTensorizer:
             notes: Optional notes about this replay.
         """
         # Create metadata with version info and timestamp
-        metadata = ReplayMetadata(version=version, timestamp=time.time(), notes=notes)
+        metadata = ReplayMetadata(
+            version=CURRENT_TENSORIZER_VERSION, timestamp=time.time(), notes=notes
+        )
 
         # Create a wrapper object containing both metadata and playthrough data
         replay_data = {
