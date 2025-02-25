@@ -1,6 +1,6 @@
 import argparse
 import os
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 import torch
 
@@ -14,6 +14,10 @@ from SampleEfficientRL.Envs.Deckbuilder.Tensorizers.SingleBattleEnvTensorizer im
     SUPPORTED_STATUS_UIDs,
     TokenType,
 )
+
+# Define NUMBER_ENCODING_DIMS for backward compatibility
+# This should match the definition in SingleBattleEnvTensorizer.py
+NUMBER_ENCODING_DIMS = BINARY_NUMBER_BITS + 1 + 1  # binary bits + scalar + log
 
 
 def print_separator() -> None:
@@ -32,9 +36,29 @@ class ReplayExplorer:
         self.replay_path = replay_path
         # Add PlaythroughStep to safe globals for loading
         torch.serialization.add_safe_globals([PlaythroughStep, ActionType])
-        self.playthrough_data = cast(
-            List[PlaythroughStep], torch.load(replay_path, weights_only=False)
-        )
+        
+        # Load the playthrough data
+        loaded_data = torch.load(replay_path, weights_only=False)
+        
+        # Determine data format (PlaythroughStep objects or just state tuples)
+        self.is_simple_tuple_format = isinstance(loaded_data[0], tuple)
+        
+        if self.is_simple_tuple_format:
+            # Simple tuple format: create artificial PlaythroughStep objects with NO_OP actions
+            self.playthrough_data = [
+                PlaythroughStep(
+                    state=state_tuple,
+                    action_type=ActionType.NO_OP,
+                    card_idx=None,
+                    target_idx=None,
+                    reward=0.0,
+                )
+                for state_tuple in loaded_data
+            ]
+        else:
+            # Standard format with PlaythroughStep objects
+            self.playthrough_data = cast(List[PlaythroughStep], loaded_data)
+        
         self.total_steps = len(self.playthrough_data)
 
         # Mapping dictionaries for readable output
@@ -49,6 +73,8 @@ class ReplayExplorer:
         }
 
         print(f"Loaded replay with {self.total_steps} steps from {replay_path}")
+        if self.is_simple_tuple_format:
+            print("NOTE: This is a simple state-only replay without action information")
 
     def _extract_numeric_value(self, encoded_number_tensor: torch.Tensor) -> int:
         """
@@ -56,19 +82,24 @@ class ReplayExplorer:
 
         Args:
             encoded_number_tensor: The encoded number tensor with shape (NUMBER_ENCODING_DIMS,)
+                                   or a scalar tensor for older format data
 
         Returns:
             The integer value represented by this encoding
         """
-        # If it's a 1D tensor (original format)
-        if encoded_number_tensor.dim() == 0:
-            return int(encoded_number_tensor.item())
+        # If it's a scalar tensor (old format), just return the value
+        if not isinstance(encoded_number_tensor, torch.Tensor) or encoded_number_tensor.dim() == 0:
+            return int(encoded_number_tensor.item()) if isinstance(encoded_number_tensor, torch.Tensor) else int(encoded_number_tensor)
 
-        # If it's the new 12-dimensional format
-        # Extract the scalar value (at position BINARY_NUMBER_BITS) and unnormalize it
-        scalar_index = BINARY_NUMBER_BITS
-        scalar_value = encoded_number_tensor[scalar_index].item() * MAX_ENCODED_NUMBER
-        return int(scalar_value)
+        # If it's the new encoded format with binary, scalar, and log components
+        if encoded_number_tensor.dim() == 1 and encoded_number_tensor.size(0) == NUMBER_ENCODING_DIMS:
+            # Extract the scalar value (at position BINARY_NUMBER_BITS) and unnormalize it
+            scalar_index = BINARY_NUMBER_BITS
+            scalar_value = encoded_number_tensor[scalar_index].item() * MAX_ENCODED_NUMBER
+            return int(scalar_value)
+        
+        # Otherwise, just return the value directly (old format)
+        return int(encoded_number_tensor.item())
 
     def _decode_state(self, step: PlaythroughStep) -> Dict[str, Any]:
         """
@@ -87,6 +118,22 @@ class ReplayExplorer:
             enemy_intent_indices,
             encoded_numbers,
         ) = step.state
+        
+        # Check if we're dealing with the old format data
+        # In the old format, encoded_numbers is 1D with shape [seq_len]
+        # In the new format, it's 2D with shape [seq_len, NUMBER_ENCODING_DIMS]
+        # For backward compatibility, we'll check the shape without referring to NUMBER_ENCODING_DIMS directly
+        is_old_format = encoded_numbers.dim() == 1
+        
+        # If it's the new format but tensor shape doesn't match NUMBER_ENCODING_DIMS, still treat as old format
+        if encoded_numbers.dim() > 1 and encoded_numbers.shape[-1] > 1:
+            try:
+                from SampleEfficientRL.Envs.Deckbuilder.Tensorizers.SingleBattleEnvTensorizer import NUMBER_ENCODING_DIMS
+                if encoded_numbers.shape[-1] != NUMBER_ENCODING_DIMS:
+                    is_old_format = True
+            except ImportError:
+                # If NUMBER_ENCODING_DIMS isn't defined, treat it as old format
+                is_old_format = True
 
         # Initialize state container
         state: Dict[str, Any] = {
@@ -117,6 +164,16 @@ class ReplayExplorer:
                 continue
 
             token_type = int(token_types[i].item())
+
+            # Extract numerical value based on format
+            numeric_value = 0
+            if token_type in [TokenType.ENTITY_HP.value, TokenType.ENTITY_MAX_HP.value, 
+                            TokenType.ENTITY_ENERGY.value, TokenType.ENTITY_STATUS.value,
+                            TokenType.ENEMY_INTENT.value]:
+                if is_old_format:
+                    numeric_value = self._extract_numeric_value(encoded_numbers[i])
+                else:
+                    numeric_value = self._extract_numeric_value(encoded_numbers[i])
 
             # Handle draw deck cards
             if token_type == TokenType.DRAW_DECK_CARD.value:
@@ -156,7 +213,7 @@ class ReplayExplorer:
 
             # Handle entity HP
             elif token_type == TokenType.ENTITY_HP.value:
-                hp_value = self._extract_numeric_value(encoded_numbers[i])
+                hp_value = numeric_value
                 # If we don't have player HP yet, this is player HP
                 if state["player"]["hp"] == 0:
                     state["player"]["hp"] = hp_value
@@ -173,7 +230,7 @@ class ReplayExplorer:
 
             # Handle entity max HP
             elif token_type == TokenType.ENTITY_MAX_HP.value:
-                max_hp_value = self._extract_numeric_value(encoded_numbers[i])
+                max_hp_value = numeric_value
                 # If we don't have player max HP yet, this is player max HP
                 if state["player"]["max_hp"] == 0:
                     state["player"]["max_hp"] = max_hp_value
@@ -186,14 +243,11 @@ class ReplayExplorer:
 
             # Handle entity energy
             elif token_type == TokenType.ENTITY_ENERGY.value:
-                state["player"]["energy"] = self._extract_numeric_value(
-                    encoded_numbers[i]
-                )
+                state["player"]["energy"] = numeric_value
 
             # Handle entity status
             elif token_type == TokenType.ENTITY_STATUS.value:
                 status_idx = int(status_uid_indices[i].item())
-                status_amount = self._extract_numeric_value(encoded_numbers[i])
                 if status_idx > 0:
                     status_name = self.status_uid_map.get(
                         status_idx, f"Unknown({status_idx})"
@@ -201,23 +255,22 @@ class ReplayExplorer:
                     # If we don't have enemy yet or have added it to list, this is player status
                     if current_enemy is None or current_enemy in state["enemies"]:
                         player_statuses = state["player"]["statuses"]
-                        player_statuses[status_name] = status_amount
+                        player_statuses[status_name] = numeric_value
                     else:
                         if current_enemy is not None:
                             enemy_statuses = current_enemy["statuses"]
-                            enemy_statuses[status_name] = status_amount
+                            enemy_statuses[status_name] = numeric_value
 
             # Handle enemy intent
             elif token_type == TokenType.ENEMY_INTENT.value:
                 intent_idx = int(enemy_intent_indices[i].item())
-                intent_amount = self._extract_numeric_value(encoded_numbers[i])
                 if intent_idx > 0 and current_enemy is not None:
                     intent_name = self.intent_type_map.get(
                         intent_idx, f"Unknown({intent_idx})"
                     )
                     current_enemy["intent"] = {
                         "name": intent_name,
-                        "amount": intent_amount,
+                        "amount": numeric_value,
                     }
 
         # Make sure all enemies are added
@@ -273,6 +326,23 @@ class ReplayExplorer:
         print("FULL REPLAY")
         print_separator()
 
+        # For simple state format without action information, use a simplified display
+        if self.is_simple_tuple_format:
+            for step_idx in range(self.total_steps):
+                print(f"STATE {step_idx + 1}")
+                print_separator()
+                
+                step = self.playthrough_data[step_idx]
+                decoded_state = self._decode_state(step)
+                
+                self.print_state_summary(step_idx, decoded_state)
+                print_separator()
+            
+            print("END OF REPLAY")
+            print_separator()
+            return
+
+        # For full PlaythroughStep format with action information, use the detailed display
         current_turn = 1
         player_turn = True
         in_enemy_phase = False
