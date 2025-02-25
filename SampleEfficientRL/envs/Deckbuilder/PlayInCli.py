@@ -5,7 +5,6 @@ import sys
 from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
     DeckbuilderSingleBattleEnv,
 )
-from SampleEfficientRL.Envs.Deckbuilder.EnvAction import EntityDescriptor
 from SampleEfficientRL.Envs.Deckbuilder.IroncladStarterVsCultist import (
     IroncladStarterVsCultist,
 )
