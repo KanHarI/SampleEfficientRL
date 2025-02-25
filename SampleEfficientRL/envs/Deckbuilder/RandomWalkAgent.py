@@ -47,21 +47,40 @@ class RandomWalkAgent:
         tensor_state = self.tensorizer.tensorize(self.env)
         self.playthrough_data.append(tensor_state)
 
-    def play_turn(self) -> str:
+    def record_game_state(self, action_type: ActionType = ActionType.NO_OP, card_idx: int = -1, target_idx: int = -1, reward: float = 0.0) -> None:
         """
-        Play a turn with random card choices and random turn ending.
+        Record the current game state with detailed information.
+        
+        Args:
+            action_type: The type of action that led to this state
+            card_idx: The index of the card played (if applicable)
+            target_idx: The index of the target (if applicable)
+            reward: The reward for the action
+        """
+        if action_type == ActionType.PLAY_CARD and card_idx >= 0:
+            self.tensorizer.record_play_card(self.env, card_idx, target_idx, reward)
+        elif action_type == ActionType.END_TURN:
+            self.tensorizer.record_end_turn(self.env, reward)
+        else:
+            # Record state with NO_OP action
+            state_tensor = self.tensorizer.tensorize(self.env)
+            self.tensorizer.record_action(state_tensor=state_tensor, action_type=action_type, reward=reward)
 
-        Returns:
-            A string indicating the result: 'win', 'lose', or 'continue'
+    def print_detailed_state(self, message: str = "Current State:") -> None:
         """
-        self.env.start_turn()
+        Print detailed state information of the game.
+        
+        Args:
+            message: Header message to display before state information
+        """
         player = self.env.player
         if player is None:
             raise ValueError("Player is not set")
 
-        # Print more detailed state information at the beginning of turn
         self.output.print_separator()
-        self.output.print("Current State:")
+        self.output.print(message)
+        
+        # Print player info
         self.output.print_player_info(
             player.current_health, player.max_health, player.energy
         )
@@ -109,12 +128,28 @@ class RandomWalkAgent:
                 )
         self.output.print_separator()
 
+    def play_turn(self) -> str:
+        """
+        Play a turn with random card choices and random turn ending.
+
+        Returns:
+            A string indicating the result: 'win', 'lose', or 'continue'
+        """
+        self.env.start_turn()
+        player = self.env.player
+        if player is None:
+            raise ValueError("Player is not set")
+
+        # Print and record the state at the beginning of the turn
+        self.print_detailed_state("State at beginning of turn:")
+        self.record_game_state()  # Record initial state with NO_OP
+
         while True:
             # Randomly decide whether to end the turn prematurely
             if random.random() < self.end_turn_probability:
                 self.output.print("Randomly decided to end turn early")
                 # Record the end turn action
-                self.tensorizer.record_end_turn(self.env)
+                self.record_game_state(ActionType.END_TURN)
                 break
 
             # Get playable cards (cost <= current energy)
@@ -127,7 +162,7 @@ class RandomWalkAgent:
             if not playable_cards:
                 self.output.print("No playable cards left, ending turn")
                 # Record the end turn action
-                self.tensorizer.record_end_turn(self.env)
+                self.record_game_state(ActionType.END_TURN)
                 break
 
             # Randomly select a card to play
@@ -137,7 +172,7 @@ class RandomWalkAgent:
             )
 
             # Record the state and action before playing the card
-            self.tensorizer.record_play_card(self.env, card_index, 0)
+            self.record_game_state(ActionType.PLAY_CARD, card_index, 0)
 
             # All cards target the first enemy (hack as in the original code)
             result = self.env.play_card_from_hand(card_index, 0)
@@ -149,34 +184,22 @@ class RandomWalkAgent:
             elif result == PlayCardResult.CARD_PLAYED_SUCCESSFULLY:
                 self.output.print_play_result("Card played successfully")
 
-            # After playing a card, print the updated state
-            self.output.print_separator()
-            self.output.print("Updated State after playing card:")
-            self.output.print_player_info(
-                player.current_health, player.max_health, player.energy
-            )
-
-            # Print updated player hand
-            self.output.print("Player Hand:")
-            for i, card in enumerate(player.hand):
-                self.output.print_card(i, card.card_uid.name, card.cost)
-
-            # Print updated opponent information
-            if self.env.opponents and len(self.env.opponents) > 0:
-                opponent = self.env.opponents[0]
-                self.output.print(
-                    f"Opponent HP: {opponent.current_health}/{opponent.max_health}"
-                )
-            self.output.print_separator()
+            # Print and record the state after playing a card
+            self.print_detailed_state("State after playing card:")
+            self.record_game_state()  # Record resulting state with NO_OP
 
             # Check for game-ending events
             events = self.env.emit_events()
             for event in events:
                 if event.name == "WIN_BATTLE":
                     self.output.print("Enemy defeated during agent's turn!")
+                    # Record the winning state
+                    self.record_game_state(reward=1.0)  # Positive reward for winning
                     return "win"
                 if event.name == "PLAYER_DEATH":
                     self.output.print("Agent has died!")
+                    # Record the losing state
+                    self.record_game_state(reward=-1.0)  # Negative reward for losing
                     return "lose"
 
         return "continue"
@@ -262,20 +285,16 @@ def main() -> None:
             opponent.opponent_type_uid.name, next_move.move_type.name, amount
         )
 
-        # The enemy is about to act, record a NO_OP action for this state
-        enemy_action_state = tensorizer.tensorize(game)
-        tensorizer.record_action(
-            state_tensor=enemy_action_state, action_type=ActionType.NO_OP, reward=0.0
-        )
+        # The enemy is about to act, record this state before the enemy acts
+        agent.print_detailed_state("State before enemy action:")
+        agent.record_game_state()
 
         # Enemy takes action
         game.end_turn()
 
-        # After enemy action, record the resulting state with a NO_OP action
-        post_enemy_state = tensorizer.tensorize(game)
-        tensorizer.record_action(
-            state_tensor=post_enemy_state, action_type=ActionType.NO_OP, reward=0.0
-        )
+        # After enemy action, print and record the resulting state
+        agent.print_detailed_state("State after enemy action:")
+        agent.record_game_state()
 
         if game.player is None:
             raise ValueError("Player is not set")
@@ -284,6 +303,8 @@ def main() -> None:
             output.print_game_over(
                 "Agent was defeated after the enemy's turn. Game Over."
             )
+            # Record final losing state with negative reward
+            agent.record_game_state(reward=-1.0)
             break
 
         turn += 1
