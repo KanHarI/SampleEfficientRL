@@ -426,7 +426,6 @@ def main() -> None:
         description="Explore a saved tensor replay as text."
     )
     parser.add_argument("replay_path", type=str, help="Path to the replay file")
-    parser.add_argument("--version", type=str, help="Required replay version")
     args = parser.parse_args()
 
     # Check if the replay file exists
@@ -435,7 +434,7 @@ def main() -> None:
         return
 
     try:
-        explorer = ReplayExplorer(args.replay_path, args.version)
+        explorer = ReplayExplorer(args.replay_path)
         explorer.print_full_replay()
     except Exception as e:
         print(f"Error loading or exploring replay: {e}")
