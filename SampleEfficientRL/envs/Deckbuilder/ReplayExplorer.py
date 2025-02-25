@@ -1,13 +1,12 @@
 import argparse
 import os
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, Dict, List, Optional, cast
 
 import torch
 
 from SampleEfficientRL.Envs.Deckbuilder.Tensorizers.SingleBattleEnvTensorizer import (
     BINARY_NUMBER_BITS,
     MAX_ENCODED_NUMBER,
-    NUMBER_ENCODING_DIMS,
     SUPPORTED_ENEMY_INTENT_TYPES,
     ActionType,
     PlaythroughStep,
@@ -33,13 +32,13 @@ class ReplayExplorer:
         self.replay_path = replay_path
         # Add PlaythroughStep to safe globals for loading
         torch.serialization.add_safe_globals([PlaythroughStep, ActionType])
-        
+
         # Load the playthrough data
         loaded_data = torch.load(replay_path, weights_only=False)
-        
+
         # Determine data format (PlaythroughStep objects or just state tuples)
         self.is_simple_tuple_format = isinstance(loaded_data[0], tuple)
-        
+
         if self.is_simple_tuple_format:
             # Simple tuple format: create artificial PlaythroughStep objects with NO_OP actions
             self.playthrough_data = [
@@ -55,7 +54,7 @@ class ReplayExplorer:
         else:
             # Standard format with PlaythroughStep objects
             self.playthrough_data = cast(List[PlaythroughStep], loaded_data)
-        
+
         self.total_steps = len(self.playthrough_data)
 
         # Mapping dictionaries for readable output
@@ -204,7 +203,9 @@ class ReplayExplorer:
 
             # Handle entity energy
             elif token_type == TokenType.ENTITY_ENERGY.value:
-                state["player"]["energy"] = self._extract_numeric_value(encoded_numbers[i])
+                state["player"]["energy"] = self._extract_numeric_value(
+                    encoded_numbers[i]
+                )
 
             # Handle entity status
             elif token_type == TokenType.ENTITY_STATUS.value:
@@ -294,13 +295,13 @@ class ReplayExplorer:
             for step_idx in range(self.total_steps):
                 print(f"STATE {step_idx + 1}")
                 print_separator()
-                
+
                 step = self.playthrough_data[step_idx]
                 decoded_state = self._decode_state(step)
-                
+
                 self.print_state_summary(step_idx, decoded_state)
                 print_separator()
-            
+
             print("END OF REPLAY")
             print_separator()
             return
