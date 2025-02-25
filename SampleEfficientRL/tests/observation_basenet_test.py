@@ -13,6 +13,9 @@ from SampleEfficientRL.Agents.RL.Networks.ObservationBasenet import (
     ObservationBasenetConfig,
     observation_basenet_small,
 )
+from SampleEfficientRL.Envs.Deckbuilder.Tensorizers.SingleBattleEnvTensorizer import (
+    NUMBER_ENCODING_DIMS,
+)
 
 
 def create_mock_state_tuple(
@@ -23,7 +26,8 @@ def create_mock_state_tuple(
     card_uid_indices = torch.randint(0, 4, (seq_len,))
     status_uid_indices = torch.randint(0, 7, (seq_len,))
     enemy_intent_indices = torch.randint(0, 3, (seq_len,))
-    encoded_numbers = torch.randint(0, 100, (seq_len,))
+    # Create encoded numbers with the new format (12 dimensions)
+    encoded_numbers = torch.rand((seq_len, NUMBER_ENCODING_DIMS))
 
     return (
         token_types,
@@ -66,7 +70,8 @@ class TestObservationBasenet:
         card_uid_indices = torch.randint(0, 4, (batch_size, seq_len))
         status_uid_indices = torch.randint(0, 7, (batch_size, seq_len))
         enemy_intent_indices = torch.randint(0, 3, (batch_size, seq_len))
-        encoded_numbers = torch.randint(0, 100, (batch_size, seq_len))
+        # Create encoded numbers with the new format (12 dimensions)
+        encoded_numbers = torch.rand((batch_size, seq_len, NUMBER_ENCODING_DIMS))
 
         state_tuple = (
             token_types,
@@ -94,7 +99,8 @@ class TestObservationBasenet:
         card_uid_indices = torch.randint(0, 4, (seq_len,))
         status_uid_indices = torch.randint(0, 7, (seq_len,))
         enemy_intent_indices = torch.randint(0, 3, (seq_len,))
-        encoded_numbers = torch.randint(0, 100, (seq_len,))
+        # Create encoded numbers with the new format (12 dimensions)
+        encoded_numbers = torch.rand((seq_len, NUMBER_ENCODING_DIMS))
 
         state_tuple = (
             token_types,

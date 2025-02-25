@@ -13,7 +13,7 @@ import torch.nn as nn
 from torch import Tensor
 
 from SampleEfficientRL.Envs.Deckbuilder.Tensorizers.SingleBattleEnvTensorizer import (
-    MAX_ENCODED_NUMBER,
+    NUMBER_ENCODING_DIMS,
     SUPPORTED_ENEMY_INTENT_TYPES,
     SUPPORTED_CARDS_UIDs,
     SUPPORTED_STATUS_UIDs,
@@ -81,9 +81,9 @@ class ObservationEmbedder(nn.Module):
             config.intent_embedding_dim,
         )
 
-        # Numerical value encoder
+        # Numerical value encoder - updated to handle the new 12-dimensional encoding
         self.numerical_encoder = nn.Sequential(
-            nn.Linear(1, config.numerical_hidden_dim // 2),
+            nn.Linear(NUMBER_ENCODING_DIMS, config.numerical_hidden_dim // 2),
             nn.ReLU(),
             nn.Linear(config.numerical_hidden_dim // 2, config.numerical_hidden_dim),
             nn.ReLU(),
@@ -113,7 +113,7 @@ class ObservationEmbedder(nn.Module):
                 - card_uid_indices: [batch_size, seq_len] tensor of card UID indices
                 - status_uid_indices: [batch_size, seq_len] tensor of status UID indices
                 - enemy_intent_indices: [batch_size, seq_len] tensor of enemy intent indices
-                - encoded_numbers: [batch_size, seq_len] tensor of numerical values
+                - encoded_numbers: [batch_size, seq_len, NUMBER_ENCODING_DIMS] tensor of encoded numerical values
 
         Returns:
             A tuple containing:
@@ -155,11 +155,9 @@ class ObservationEmbedder(nn.Module):
         status_embeddings = self.status_embedding(status_uid_indices)
         intent_embeddings = self.intent_embedding(enemy_intent_indices)
 
-        # Process numerical values
-        # Normalize to [0, 1] range based on MAX_ENCODED_NUMBER
-        normalized_numbers = encoded_numbers.float() / MAX_ENCODED_NUMBER
-        normalized_numbers = normalized_numbers.unsqueeze(-1)  # Add feature dimension
-        numeric_embeddings = self.numerical_encoder(normalized_numbers)
+        # Process numerical values - encoded_numbers is already in the desired format
+        # No need to normalize or reshape as it's already properly encoded
+        numeric_embeddings = self.numerical_encoder(encoded_numbers)
 
         # Combine all embeddings
         combined_embeddings = torch.cat(

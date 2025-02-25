@@ -5,6 +5,8 @@ from typing import Any, Dict, List, Optional, cast
 import torch
 
 from SampleEfficientRL.Envs.Deckbuilder.Tensorizers.SingleBattleEnvTensorizer import (
+    BINARY_NUMBER_BITS,
+    MAX_ENCODED_NUMBER,
     SUPPORTED_ENEMY_INTENT_TYPES,
     ActionType,
     PlaythroughStep,
@@ -47,6 +49,26 @@ class ReplayExplorer:
         }
 
         print(f"Loaded replay with {self.total_steps} steps from {replay_path}")
+
+    def _extract_numeric_value(self, encoded_number_tensor: torch.Tensor) -> int:
+        """
+        Extract the scalar numeric value from the encoded number tensor.
+
+        Args:
+            encoded_number_tensor: The encoded number tensor with shape (NUMBER_ENCODING_DIMS,)
+
+        Returns:
+            The integer value represented by this encoding
+        """
+        # If it's a 1D tensor (original format)
+        if encoded_number_tensor.dim() == 0:
+            return int(encoded_number_tensor.item())
+
+        # If it's the new 12-dimensional format
+        # Extract the scalar value (at position BINARY_NUMBER_BITS) and unnormalize it
+        scalar_index = BINARY_NUMBER_BITS
+        scalar_value = encoded_number_tensor[scalar_index].item() * MAX_ENCODED_NUMBER
+        return int(scalar_value)
 
     def _decode_state(self, step: PlaythroughStep) -> Dict[str, Any]:
         """
@@ -134,7 +156,7 @@ class ReplayExplorer:
 
             # Handle entity HP
             elif token_type == TokenType.ENTITY_HP.value:
-                hp_value = int(encoded_numbers[i].item())
+                hp_value = self._extract_numeric_value(encoded_numbers[i])
                 # If we don't have player HP yet, this is player HP
                 if state["player"]["hp"] == 0:
                     state["player"]["hp"] = hp_value
@@ -151,7 +173,7 @@ class ReplayExplorer:
 
             # Handle entity max HP
             elif token_type == TokenType.ENTITY_MAX_HP.value:
-                max_hp_value = int(encoded_numbers[i].item())
+                max_hp_value = self._extract_numeric_value(encoded_numbers[i])
                 # If we don't have player max HP yet, this is player max HP
                 if state["player"]["max_hp"] == 0:
                     state["player"]["max_hp"] = max_hp_value
@@ -164,12 +186,14 @@ class ReplayExplorer:
 
             # Handle entity energy
             elif token_type == TokenType.ENTITY_ENERGY.value:
-                state["player"]["energy"] = int(encoded_numbers[i].item())
+                state["player"]["energy"] = self._extract_numeric_value(
+                    encoded_numbers[i]
+                )
 
             # Handle entity status
             elif token_type == TokenType.ENTITY_STATUS.value:
                 status_idx = int(status_uid_indices[i].item())
-                status_amount = int(encoded_numbers[i].item())
+                status_amount = self._extract_numeric_value(encoded_numbers[i])
                 if status_idx > 0:
                     status_name = self.status_uid_map.get(
                         status_idx, f"Unknown({status_idx})"
@@ -186,7 +210,7 @@ class ReplayExplorer:
             # Handle enemy intent
             elif token_type == TokenType.ENEMY_INTENT.value:
                 intent_idx = int(enemy_intent_indices[i].item())
-                intent_amount = int(encoded_numbers[i].item())
+                intent_amount = self._extract_numeric_value(encoded_numbers[i])
                 if intent_idx > 0 and current_enemy is not None:
                     intent_name = self.intent_type_map.get(
                         intent_idx, f"Unknown({intent_idx})"
