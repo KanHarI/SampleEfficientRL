@@ -1,7 +1,8 @@
 import math
+import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 
@@ -95,6 +96,16 @@ class PlaythroughStep:
     card_idx: Optional[int] = None
     target_idx: Optional[int] = None
     reward: float = 0.0
+
+
+@dataclass
+class ReplayMetadata:
+    """Metadata for replay recordings to track version and compatibility."""
+
+    version: str
+    timestamp: Optional[float] = None
+    game_config: Optional[Dict[str, Any]] = None
+    notes: Optional[str] = None
 
 
 class SingleBattleEnvTensorizer:
@@ -391,11 +402,25 @@ class SingleBattleEnvTensorizer:
             state_tensor=state_tensor, action_type=ActionType.END_TURN, reward=reward
         )
 
-    def save_playthrough(self, filename: str) -> None:
+    def save_playthrough(
+        self, filename: str, version: str = "1.0.0", notes: Optional[str] = None
+    ) -> None:
         """
-        Save the recorded playthrough data to a file.
+        Save the recorded playthrough data to a file with metadata.
 
         Args:
             filename: The path to save the data to.
+            version: The version string for the replay format.
+            notes: Optional notes about this replay.
         """
-        torch.save(self.playthrough_steps, filename)
+        # Create metadata with version info and timestamp
+        metadata = ReplayMetadata(version=version, timestamp=time.time(), notes=notes)
+
+        # Create a wrapper object containing both metadata and playthrough data
+        replay_data = {
+            "metadata": metadata,
+            "playthrough_steps": self.playthrough_steps,
+        }
+
+        # Save the combined data structure
+        torch.save(replay_data, filename)

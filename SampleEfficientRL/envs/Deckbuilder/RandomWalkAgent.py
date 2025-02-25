@@ -1,7 +1,7 @@
 import argparse
 import os
 import random
-from typing import Any, List
+from typing import Any, List, Optional
 
 from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
     DeckbuilderSingleBattleEnv,
@@ -113,12 +113,21 @@ class RandomWalkAgent:
 
         return "continue"
 
-    def save_playthrough(self, filename: str) -> None:
-        """Save the recorded playthrough data to a binary file."""
+    def save_playthrough(
+        self, filename: str, version: str = "1.0.0", notes: Optional[str] = None
+    ) -> None:
+        """
+        Save the recorded playthrough data to a binary file with metadata.
+
+        Args:
+            filename: The path to save the data to.
+            version: The version string for this replay format.
+            notes: Optional notes about this replay.
+        """
         # Ensure the directory exists
         os.makedirs(os.path.dirname(filename), exist_ok=True)
-        # Use the tensorizer's save_playthrough method instead
-        self.tensorizer.save_playthrough(filename)
+        # Use the tensorizer's save_playthrough method instead, passing version and notes
+        self.tensorizer.save_playthrough(filename, version=version, notes=notes)
         print(
             f"Saved playthrough data with {len(self.tensorizer.get_playthrough_data())} steps to {filename}"
         )

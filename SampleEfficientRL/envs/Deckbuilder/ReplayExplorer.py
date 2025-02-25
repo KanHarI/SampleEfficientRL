@@ -1,5 +1,6 @@
 import argparse
 import os
+import time
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 import torch
@@ -11,6 +12,7 @@ from SampleEfficientRL.Envs.Deckbuilder.Tensorizers.SingleBattleEnvTensorizer im
     SUPPORTED_ENEMY_INTENT_TYPES,
     ActionType,
     PlaythroughStep,
+    ReplayMetadata,
     SUPPORTED_CARDS_UIDs,
     SUPPORTED_STATUS_UIDs,
     TokenType,
@@ -23,23 +25,53 @@ def print_separator() -> None:
 
 
 class ReplayExplorer:
-    def __init__(self, replay_path: str):
+    def __init__(self, replay_path: str, required_version: Optional[str] = None):
         """
         Initialize the replay explorer with a path to a replay file.
 
         Args:
             replay_path: Path to the replay file
+            required_version: If provided, check that the replay is compatible with this version
         """
         self.replay_path = replay_path
-        # Add PlaythroughStep to safe globals for loading
-        torch.serialization.add_safe_globals([PlaythroughStep, ActionType])
-        
+        # Add PlaythroughStep and ReplayMetadata to safe globals for loading
+        torch.serialization.add_safe_globals(
+            [PlaythroughStep, ActionType, ReplayMetadata]
+        )
+
         # Load the playthrough data
-        loaded_data = torch.load(replay_path, weights_only=False)
-        
-        # Determine data format (PlaythroughStep objects or just state tuples)
+        raw_data = torch.load(replay_path, weights_only=False)
+
+        # Check data format and extract playthrough data and metadata
+        self.metadata: Optional[ReplayMetadata] = None
+        if (
+            isinstance(raw_data, dict)
+            and "metadata" in raw_data
+            and "playthrough_steps" in raw_data
+        ):
+            # New format with metadata
+            self.metadata = raw_data["metadata"]
+            loaded_data = raw_data["playthrough_steps"]
+
+            # Check version compatibility if required
+            if (
+                required_version is not None
+                and self.metadata.version != required_version
+            ):
+                print(
+                    f"WARNING: Replay version ({self.metadata.version}) doesn't match required version ({required_version})"
+                )
+                print("This replay may not be compatible with the current code.")
+        else:
+            # Legacy format without metadata
+            loaded_data = raw_data
+            print(
+                "WARNING: This replay file uses the legacy format without version metadata."
+            )
+
+        # Determine data format of playthrough steps (PlaythroughStep objects or just state tuples)
         self.is_simple_tuple_format = isinstance(loaded_data[0], tuple)
-        
+
         if self.is_simple_tuple_format:
             # Simple tuple format: create artificial PlaythroughStep objects with NO_OP actions
             self.playthrough_data = [
@@ -55,7 +87,7 @@ class ReplayExplorer:
         else:
             # Standard format with PlaythroughStep objects
             self.playthrough_data = cast(List[PlaythroughStep], loaded_data)
-        
+
         self.total_steps = len(self.playthrough_data)
 
         # Mapping dictionaries for readable output
@@ -70,6 +102,20 @@ class ReplayExplorer:
         }
 
         print(f"Loaded replay with {self.total_steps} steps from {replay_path}")
+        if self.metadata:
+            timestamp_str = (
+                time.strftime(
+                    "%Y-%m-%d %H:%M:%S", time.localtime(self.metadata.timestamp)
+                )
+                if self.metadata.timestamp
+                else "Unknown"
+            )
+            print(
+                f"Replay version: {self.metadata.version}, Recorded on: {timestamp_str}"
+            )
+            if self.metadata.notes:
+                print(f"Notes: {self.metadata.notes}")
+
         if self.is_simple_tuple_format:
             print("NOTE: This is a simple state-only replay without action information")
 
@@ -204,7 +250,9 @@ class ReplayExplorer:
 
             # Handle entity energy
             elif token_type == TokenType.ENTITY_ENERGY.value:
-                state["player"]["energy"] = self._extract_numeric_value(encoded_numbers[i])
+                state["player"]["energy"] = self._extract_numeric_value(
+                    encoded_numbers[i]
+                )
 
             # Handle entity status
             elif token_type == TokenType.ENTITY_STATUS.value:
@@ -294,13 +342,13 @@ class ReplayExplorer:
             for step_idx in range(self.total_steps):
                 print(f"STATE {step_idx + 1}")
                 print_separator()
-                
+
                 step = self.playthrough_data[step_idx]
                 decoded_state = self._decode_state(step)
-                
+
                 self.print_state_summary(step_idx, decoded_state)
                 print_separator()
-            
+
             print("END OF REPLAY")
             print_separator()
             return
@@ -381,6 +429,7 @@ def main() -> None:
         description="Explore a saved tensor replay as text."
     )
     parser.add_argument("replay_path", type=str, help="Path to the replay file")
+    parser.add_argument("--version", type=str, help="Required replay version")
     args = parser.parse_args()
 
     # Check if the replay file exists
@@ -389,7 +438,7 @@ def main() -> None:
         return
 
     try:
-        explorer = ReplayExplorer(args.replay_path)
+        explorer = ReplayExplorer(args.replay_path, args.version)
         explorer.print_full_replay()
     except Exception as e:
         print(f"Error loading or exploring replay: {e}")
