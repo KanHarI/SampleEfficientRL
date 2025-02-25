@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, cast
 
 import torch
 
+from SampleEfficientRL.Envs.Deckbuilder.GameOutputManager import GameOutputManager
 from SampleEfficientRL.Envs.Deckbuilder.Tensorizers.SingleBattleEnvTensorizer import (
     BINARY_NUMBER_BITS,
     MAX_ENCODED_NUMBER,
@@ -16,20 +17,18 @@ from SampleEfficientRL.Envs.Deckbuilder.Tensorizers.SingleBattleEnvTensorizer im
 )
 
 
-def print_separator() -> None:
-    """Print a separator line."""
-    print("\n" + "=" * 40 + "\n")
-
-
 class ReplayExplorer:
-    def __init__(self, replay_path: str):
+    def __init__(self, replay_path: str, output_manager: GameOutputManager):
         """
         Initialize the replay explorer with a path to a replay file.
 
         Args:
             replay_path: Path to the replay file
+            output_manager: Output manager for formatted text output
         """
         self.replay_path = replay_path
+        self.output = output_manager
+
         # Add PlaythroughStep to safe globals for loading
         torch.serialization.add_safe_globals([PlaythroughStep, ActionType])
 
@@ -68,9 +67,13 @@ class ReplayExplorer:
             i + 1: intent.name for i, intent in enumerate(SUPPORTED_ENEMY_INTENT_TYPES)
         }
 
-        print(f"Loaded replay with {self.total_steps} steps from {replay_path}")
+        self.output.print(
+            f"Loaded replay with {self.total_steps} steps from {replay_path}"
+        )
         if self.is_simple_tuple_format:
-            print("NOTE: This is a simple state-only replay without action information")
+            self.output.print(
+                "NOTE: This is a simple state-only replay without action information"
+            )
 
     def _extract_numeric_value(self, encoded_number_tensor: torch.Tensor) -> int:
         """
@@ -247,16 +250,14 @@ class ReplayExplorer:
         """Print a summary of the state for one step."""
         # Player info
         player = decoded_state["player"]
-        print(
-            f"Player HP: {player['hp']}/{player['max_hp']}, Energy: {player['energy']}"
-        )
+        self.output.print_player_info(player["hp"], player["max_hp"], player["energy"])
 
         # Enemies info
         for i, enemy in enumerate(decoded_state["enemies"]):
-            print(f"Opponent {i+1} HP: {enemy['hp']}/{enemy['max_hp']}")
+            self.output.print_opponent_info(i + 1, enemy["hp"], enemy["max_hp"])
             if enemy["intent"]:
-                print(
-                    f"  Intent: {enemy['intent']['name']} with amount {enemy['intent']['amount']}"
+                self.output.print_opponent_intent(
+                    enemy["intent"]["name"], enemy["intent"]["amount"]
                 )
 
     def print_action_summary(
@@ -272,38 +273,34 @@ class ReplayExplorer:
             player_hand = decoded_state["player"]["hand"]
             if card_idx < len(player_hand):
                 card_name = player_hand[card_idx]["name"]
-                print(
-                    f"  Action: Play card {card_name} (index {card_idx}), targeting enemy {target_idx}"
+                self.output.print_player_action(
+                    action_type, card_name, card_idx, target_idx
                 )
             else:
-                print(
-                    f"  Action: Play card at index {card_idx}, targeting enemy {target_idx}"
-                )
+                self.output.print_player_action(action_type, None, card_idx, target_idx)
         elif action_type == "END_TURN":
-            print("  Action: End Turn")
+            self.output.print_player_action(action_type)
         elif action_type == "NO_OP":
-            print("  Action: No Operation")
+            self.output.print_player_action(action_type)
 
     def print_full_replay(self) -> None:
         """Print the entire replay in a turn-by-turn format."""
-        print_separator()
-        print("FULL REPLAY")
-        print_separator()
+        self.output.print_separator()
+        self.output.print_header("FULL REPLAY")
 
         # For simple state format without action information, use a simplified display
         if self.is_simple_tuple_format:
             for step_idx in range(self.total_steps):
-                print(f"STATE {step_idx + 1}")
-                print_separator()
+                self.output.print(f"STATE {step_idx + 1}")
+                self.output.print_separator()
 
                 step = self.playthrough_data[step_idx]
                 decoded_state = self._decode_state(step)
 
                 self.print_state_summary(step_idx, decoded_state)
-                print_separator()
+                self.output.print_separator()
 
-            print("END OF REPLAY")
-            print_separator()
+            self.output.print_header("END OF REPLAY")
             return
 
         # For full PlaythroughStep format with action information, use the detailed display
@@ -312,8 +309,8 @@ class ReplayExplorer:
         in_enemy_phase = False
 
         # First step is always start of turn 1
-        print(f"START TURN {current_turn}")
-        print_separator()
+        self.output.print(f"START TURN {current_turn}")
+        self.output.print_separator()
 
         for step_idx in range(self.total_steps):
             step = self.playthrough_data[step_idx]
@@ -338,7 +335,7 @@ class ReplayExplorer:
                 )
             ):
                 self.print_state_summary(step_idx, decoded_state)
-                print("")
+                self.output.print("")
 
             # Print the action
             self.print_action_summary(step_idx, decoded_state)
@@ -347,8 +344,8 @@ class ReplayExplorer:
             if action_type == ActionType.END_TURN:
                 if player_turn and not in_enemy_phase:
                     # Player turn ending, moving to enemy phase
-                    print(f"END OF PLAYER PHASE (TURN {current_turn})")
-                    print("")
+                    self.output.print(f"END OF PLAYER PHASE (TURN {current_turn})")
+                    self.output.print("")
                     in_enemy_phase = True
 
                     # Print enemy phase header if there's a next step and it's a NO_OP
@@ -357,23 +354,22 @@ class ReplayExplorer:
                         and self.playthrough_data[step_idx + 1].action_type
                         == ActionType.NO_OP
                     ):
-                        print(f"ENEMY PHASE (TURN {current_turn})")
+                        self.output.print(f"ENEMY PHASE (TURN {current_turn})")
 
                 elif in_enemy_phase:
                     # Enemy phase ending, moving to next player turn
-                    print("")
+                    self.output.print("")
                     in_enemy_phase = False
                     player_turn = True
                     current_turn += 1
 
                     # Print next turn header if there's a next step
                     if step_idx + 1 < self.total_steps:
-                        print(f"START TURN {current_turn}")
-                        print_separator()
+                        self.output.print(f"START TURN {current_turn}")
+                        self.output.print_separator()
 
-        print_separator()
-        print("END OF REPLAY")
-        print_separator()
+        self.output.print_separator()
+        self.output.print_header("END OF REPLAY")
 
 
 def main() -> None:
@@ -382,6 +378,9 @@ def main() -> None:
         description="Explore a saved tensor replay as text."
     )
     parser.add_argument("replay_path", type=str, help="Path to the replay file")
+    parser.add_argument(
+        "--log-file", "-l", type=str, default=None, help="Path to log file (optional)"
+    )
     args = parser.parse_args()
 
     # Check if the replay file exists
@@ -389,11 +388,17 @@ def main() -> None:
         print(f"Error: Replay file '{args.replay_path}' not found.")
         return
 
+    # Initialize the output manager
+    output = GameOutputManager(args.log_file)
+
     try:
-        explorer = ReplayExplorer(args.replay_path)
+        explorer = ReplayExplorer(args.replay_path, output)
         explorer.print_full_replay()
     except Exception as e:
-        print(f"Error loading or exploring replay: {e}")
+        output.print(f"Error loading or exploring replay: {e}")
+
+    # Close the output manager
+    output.close()
 
 
 if __name__ == "__main__":
