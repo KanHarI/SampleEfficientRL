@@ -81,6 +81,7 @@ def player_turn(env: DeckbuilderSingleBattleEnv) -> str:
         ).strip()
         if user_input.lower() in ["end", "e"]:
             os.system("cls" if os.name == "nt" else "clear")
+            print("\n")
             break
         if user_input.lower() in ["quit", "q", "exit"]:
             print("Exiting game.")
@@ -89,10 +90,12 @@ def player_turn(env: DeckbuilderSingleBattleEnv) -> str:
             index = int(user_input)
         except ValueError:
             os.system("cls" if os.name == "nt" else "clear")
+            print("\n")
             print("Invalid input. Please enter a valid card index or 'end'.")
             continue
 
         os.system("cls" if os.name == "nt" else "clear")
+        print("\n")
         if index < 0 or index >= len(player.hand):
             print("Invalid card index. Try again.")
             continue
@@ -131,6 +134,7 @@ def player_turn(env: DeckbuilderSingleBattleEnv) -> str:
 
 def main() -> None:
     os.system("cls" if os.name == "nt" else "clear")
+    print("\n")
     print_separator()
     print("Starting Ironclad vs Cultist CLI Game")
     game = IroncladStarterVsCultist()
