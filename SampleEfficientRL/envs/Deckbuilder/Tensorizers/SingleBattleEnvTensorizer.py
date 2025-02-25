@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, Tuple
@@ -66,6 +67,7 @@ MAX_ENCODED_NUMBER = 1023
 BINARY_NUMBER_BITS = 10
 SCALAR_NUMBER_DIMS = 1
 LOG_NUMBER_DIMS = 1
+NUMBER_ENCODING_DIMS = BINARY_NUMBER_BITS + SCALAR_NUMBER_DIMS + LOG_NUMBER_DIMS
 
 
 class TensorizerMode(Enum):
@@ -100,6 +102,41 @@ class SingleBattleEnvTensorizer:
         self.config = config
         self.playthrough_steps: List[PlaythroughStep] = []
 
+    def _encode_number(self, num: int) -> torch.Tensor:
+        """
+        Encodes a number into a 12-dimensional representation:
+        - 10 binary bits
+        - The scalar value (normalized)
+        - The log (base e) of the scalar value (or -1 for 0)
+
+        Args:
+            num: The number to encode
+
+        Returns:
+            A tensor with shape (NUMBER_ENCODING_DIMS,) containing the encoded number
+        """
+        # Cap the number
+        num = min(num, MAX_ENCODED_NUMBER)
+
+        # Initialize tensor for the encoded number
+        encoded = torch.zeros(NUMBER_ENCODING_DIMS, dtype=torch.float)
+
+        # Binary bits (10 bits)
+        for i in range(BINARY_NUMBER_BITS):
+            if num & (1 << i):
+                encoded[i] = 1.0
+
+        # Scalar value (normalized to [0, 1])
+        encoded[BINARY_NUMBER_BITS] = float(num) / MAX_ENCODED_NUMBER
+
+        # Log value
+        if num > 0:
+            encoded[BINARY_NUMBER_BITS + SCALAR_NUMBER_DIMS] = math.log(float(num))
+        else:
+            encoded[BINARY_NUMBER_BITS + SCALAR_NUMBER_DIMS] = -1.0
+
+        return encoded
+
     # Return tensors tuple:
     # Token types,
     # Card uid indices,
@@ -131,7 +168,9 @@ class SingleBattleEnvTensorizer:
         card_uid_indices = torch.zeros(self.config.context_size, dtype=torch.long)
         status_uid_indices = torch.zeros(self.config.context_size, dtype=torch.long)
         enemy_intent_indices = torch.zeros(self.config.context_size, dtype=torch.long)
-        encoded_numbers = torch.zeros(self.config.context_size, dtype=torch.long)
+        encoded_numbers = torch.zeros(
+            (self.config.context_size, NUMBER_ENCODING_DIMS), dtype=torch.float
+        )
 
         position = 0
 
@@ -186,17 +225,17 @@ class SingleBattleEnvTensorizer:
         # Encode player entity information
         check_context_size()
         token_types[position] = TokenType.ENTITY_HP.value
-        encoded_numbers[position] = min(player.current_health, MAX_ENCODED_NUMBER)
+        encoded_numbers[position] = self._encode_number(player.current_health)
         position += 1
 
         check_context_size()
         token_types[position] = TokenType.ENTITY_MAX_HP.value
-        encoded_numbers[position] = min(player.max_health, MAX_ENCODED_NUMBER)
+        encoded_numbers[position] = self._encode_number(player.max_health)
         position += 1
 
         check_context_size()
         token_types[position] = TokenType.ENTITY_ENERGY.value
-        encoded_numbers[position] = min(player.energy, MAX_ENCODED_NUMBER)
+        encoded_numbers[position] = self._encode_number(player.energy)
         position += 1
 
         # Encode player statuses
@@ -208,7 +247,7 @@ class SingleBattleEnvTensorizer:
                 status_uid_indices[position] = (
                     SUPPORTED_STATUS_UIDs.index(status_uid) + 1
                 )
-                encoded_numbers[position] = min(amount, MAX_ENCODED_NUMBER)
+                encoded_numbers[position] = self._encode_number(amount)
                 position += 1
 
         # Encode enemies
@@ -220,15 +259,13 @@ class SingleBattleEnvTensorizer:
                 # Enemy HP
                 check_context_size()
                 token_types[position] = TokenType.ENTITY_HP.value
-                encoded_numbers[position] = min(
-                    enemy.current_health, MAX_ENCODED_NUMBER
-                )
+                encoded_numbers[position] = self._encode_number(enemy.current_health)
                 position += 1
 
                 # Enemy Max HP
                 check_context_size()
                 token_types[position] = TokenType.ENTITY_MAX_HP.value
-                encoded_numbers[position] = min(enemy.max_health, MAX_ENCODED_NUMBER)
+                encoded_numbers[position] = self._encode_number(enemy.max_health)
                 position += 1
 
                 # Enemy intent
@@ -243,8 +280,8 @@ class SingleBattleEnvTensorizer:
                             + 1
                         )
                     if enemy.next_move.amount is not None:
-                        encoded_numbers[position] = min(
-                            enemy.next_move.amount, MAX_ENCODED_NUMBER
+                        encoded_numbers[position] = self._encode_number(
+                            enemy.next_move.amount
                         )
                     position += 1
 
@@ -257,7 +294,7 @@ class SingleBattleEnvTensorizer:
                         status_uid_indices[position] = (
                             SUPPORTED_STATUS_UIDs.index(status_uid) + 1
                         )
-                        encoded_numbers[position] = min(amount, MAX_ENCODED_NUMBER)
+                        encoded_numbers[position] = self._encode_number(amount)
                         position += 1
 
         return (
