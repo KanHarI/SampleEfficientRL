@@ -2,6 +2,8 @@ import argparse
 import os
 import random
 import sys
+from pathlib import Path
+from typing import Optional
 
 from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
     DeckbuilderSingleBattleEnv,
@@ -12,6 +14,12 @@ from SampleEfficientRL.Envs.Deckbuilder.IroncladStarterVsCultist import (
 )
 from SampleEfficientRL.Envs.Deckbuilder.Player import PlayCardResult
 from SampleEfficientRL.Envs.Deckbuilder.Status import StatusesOrder
+from SampleEfficientRL.Envs.Deckbuilder.Tensorizers.SingleBattleEnvTensorizer import (
+    ActionType,
+    SingleBattleEnvTensorizer,
+    SingleBattleEnvTensorizerConfig,
+    TensorizerMode,
+)
 
 
 def print_state(env: DeckbuilderSingleBattleEnv, output: GameOutputManager) -> None:
@@ -76,7 +84,11 @@ def print_state(env: DeckbuilderSingleBattleEnv, output: GameOutputManager) -> N
     output.print_separator()
 
 
-def player_turn(env: DeckbuilderSingleBattleEnv, output: GameOutputManager) -> str:
+def player_turn(
+    env: DeckbuilderSingleBattleEnv, 
+    output: GameOutputManager,
+    tensorizer: Optional[SingleBattleEnvTensorizer] = None,
+) -> str:
     # Start player's turn events (draw hand, set energy from statuses)
     env.start_turn()
     player = env.player
@@ -92,6 +104,9 @@ def player_turn(env: DeckbuilderSingleBattleEnv, output: GameOutputManager) -> s
         if user_input.lower() in ["end", "e"]:
             os.system("cls" if os.name == "nt" else "clear")
             print("\n")
+            # Record the end turn action if tensorizer is available
+            if tensorizer is not None:
+                tensorizer.record_end_turn(env)
             break
         if user_input.lower() in ["quit", "q", "exit"]:
             output.print("Exiting game.")
@@ -121,7 +136,13 @@ def player_turn(env: DeckbuilderSingleBattleEnv, output: GameOutputManager) -> s
         output.print(f"Playing card: {card_uid.name}.")
 
         # All cards target the first enemy (hack for now)
-        result = env.play_card_from_hand(index, 0)
+        target_idx = 0
+
+        # Record the play card action before executing it
+        if tensorizer is not None:
+            tensorizer.record_play_card(env, index, target_idx)
+
+        result = env.play_card_from_hand(index, target_idx)
         if result == PlayCardResult.CARD_NOT_FOUND:
             output.print_play_result("Card not found in hand")
         if result == PlayCardResult.NOT_ENOUGH_ENERGY:
@@ -154,6 +175,26 @@ def main() -> None:
         default=None,
         help="Path to log file for game output (optional)",
     )
+    parser.add_argument(
+        "--record",
+        "-r",
+        action="store_true",
+        help="Record gameplay using the tensorizer",
+    )
+    parser.add_argument(
+        "--output-dir",
+        "-o",
+        type=str,
+        default="./recordings",
+        help="Directory to save tensorized gameplay recordings",
+    )
+    parser.add_argument(
+        "--output-file",
+        "-f",
+        type=str,
+        default=None,
+        help="Full path for the saved tensorized gameplay file (overrides --output-dir if provided)",
+    )
     args = parser.parse_args()
 
     # Initialize output manager with optional log file
@@ -162,6 +203,28 @@ def main() -> None:
     os.system("cls" if os.name == "nt" else "clear")
     print("\n")
 
+    # Initialize the tensorizer if recording is enabled
+    tensorizer = None
+    if args.record:
+        # If output-file is provided, ensure its directory exists
+        if args.output_file:
+            output_dir = os.path.dirname(args.output_file)
+            if output_dir:  # Only create if there's an actual directory part
+                os.makedirs(output_dir, exist_ok=True)
+        else:
+            # Create output directory if it doesn't exist
+            os.makedirs(args.output_dir, exist_ok=True)
+        
+        # Configure tensorizer for recording
+        config = SingleBattleEnvTensorizerConfig(
+            context_size=1024,  # Large enough for most game states
+            mode=TensorizerMode.RECORD,
+            include_turn_count=True,
+            include_action_history=True,
+        )
+        tensorizer = SingleBattleEnvTensorizer(config)
+        output.print("Gameplay recording enabled. Will save tensorized state at end of game.")
+
     output.print_header("Starting Ironclad vs Cultist CLI Game")
     game = IroncladStarterVsCultist()
     player = game.player
@@ -169,7 +232,7 @@ def main() -> None:
     turn = 1
     while True:
         output.print_turn_header(turn)
-        result = player_turn(game, output)
+        result = player_turn(game, output, tensorizer)
         if result == "win":
             output.print_game_over("Congratulations! You won the battle!")
             break
@@ -179,7 +242,7 @@ def main() -> None:
 
         if game.opponents is None:
             raise ValueError("Opponents are not set")
-        for opponent in game.opponents:
+        for enemy_idx, opponent in enumerate(game.opponents):
             next_move = opponent.next_move
             if next_move is None:
                 raise ValueError("Opponent next move is not set")
@@ -191,6 +254,15 @@ def main() -> None:
             output.print_opponent_action(
                 opponent.opponent_type_uid.name, next_move.move_type.name, amount
             )
+            
+            # Record enemy action if tensorizer is available
+            if tensorizer is not None:
+                tensorizer.record_enemy_action(
+                    game, 
+                    enemy_idx, 
+                    next_move.move_type, 
+                    amount
+                )
 
         game.end_turn()
 
@@ -203,6 +275,19 @@ def main() -> None:
             )
             break
         turn += 1
+
+    # Save the recorded playthrough if tensorizer is available
+    if tensorizer is not None and args.record:
+        if args.output_file:
+            # Use the custom file path if provided
+            recording_path = args.output_file
+        else:
+            # Use the default path with timestamp
+            timestamp = os.path.basename(os.path.normpath(os.getcwd()))
+            recording_path = os.path.join(args.output_dir, f"playthrough_{timestamp}.pt")
+            
+        tensorizer.save_playthrough(recording_path)
+        output.print(f"Saved gameplay recording to {recording_path}")
 
     # Close the output manager to ensure log file is properly closed
     output.close()

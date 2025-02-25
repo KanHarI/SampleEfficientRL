@@ -1,7 +1,9 @@
 import argparse
 import os
 import random
-from typing import Any, List
+from datetime import datetime
+from pathlib import Path
+from typing import Any, List, Optional
 
 from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
     DeckbuilderSingleBattleEnv,
@@ -41,6 +43,7 @@ class RandomWalkAgent:
         self.output = output_manager
         self.end_turn_probability = end_turn_probability
         self.playthrough_data: List[Any] = []  # Store tensor states here
+        self.current_turn = 0  # Track the current turn number
 
     def record_state(self) -> None:
         """Record the current state as tensors and add to playthrough data."""
@@ -64,15 +67,40 @@ class RandomWalkAgent:
             reward: The reward for the action
         """
         if action_type == ActionType.PLAY_CARD and card_idx >= 0:
-            self.tensorizer.record_play_card(self.env, card_idx, target_idx, reward)
+            self.tensorizer.record_play_card(
+                self.env, card_idx, target_idx, reward
+            )
         elif action_type == ActionType.END_TURN:
             self.tensorizer.record_end_turn(self.env, reward)
         else:
             # Record state with NO_OP action
             state_tensor = self.tensorizer.tensorize(self.env)
             self.tensorizer.record_action(
-                state_tensor=state_tensor, action_type=action_type, reward=reward
+                state_tensor=state_tensor, 
+                action_type=action_type, 
+                reward=reward,
+                turn_number=self.env.num_turn
             )
+
+    def record_enemy_action(
+        self,
+        enemy_idx: int,
+        move_type: Any,  # Using Any for NextMoveType to avoid import
+        amount: Optional[int] = None,
+        reward: float = 0.0,
+    ) -> None:
+        """
+        Record an enemy action.
+        
+        Args:
+            enemy_idx: The index of the enemy taking the action
+            move_type: The type of move the enemy is making
+            amount: The amount associated with the move (e.g., attack damage)
+            reward: The reward received for this action
+        """
+        self.tensorizer.record_enemy_action(
+            self.env, enemy_idx, move_type, amount, reward
+        )
 
     def print_detailed_state(self, message: str = "Current State:") -> None:
         """
@@ -98,10 +126,23 @@ class RandomWalkAgent:
         for i, card in enumerate(player.hand):
             self.output.print_card(i, card.card_uid.name, card.cost)
 
+        # Print draw pile (shuffled to match PlayInCli.py behavior)
+        draw_pile = player.draw_pile.copy()
+        random.shuffle(draw_pile)
+        self.output.print("Draw Pile:")
+        for i, card in enumerate(draw_pile):
+            self.output.print_card(i, card.card_uid.name, card.cost)
+
         # Print discard pile
         self.output.print("Discard Pile:")
         for i, card in enumerate(player.discard_pile):
             self.output.print_card(i, card.card_uid.name, card.cost)
+
+        # Print exhaust pile if it exists
+        if hasattr(player, 'exhaust_pile') and player.exhaust_pile:
+            self.output.print("Exhaust Pile:")
+            for i, card in enumerate(player.exhaust_pile):
+                self.output.print_card(i, card.card_uid.name, card.cost)
 
         # Print player statuses if any
         if hasattr(player, "get_active_statuses"):
@@ -144,6 +185,8 @@ class RandomWalkAgent:
             A string indicating the result: 'win', 'lose', or 'continue'
         """
         self.env.start_turn()
+        self.current_turn = self.env.num_turn
+        
         player = self.env.player
         if player is None:
             raise ValueError("Player is not set")
@@ -215,8 +258,11 @@ class RandomWalkAgent:
     def save_playthrough(self, filename: str) -> None:
         """Save the recorded playthrough data to a binary file."""
         # Ensure the directory exists
-        os.makedirs(os.path.dirname(filename), exist_ok=True)
-        # Use the tensorizer's save_playthrough method instead
+        directory = os.path.dirname(filename)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+            
+        # Use the tensorizer's save_playthrough method
         self.tensorizer.save_playthrough(filename)
         self.output.print(
             f"Saved playthrough data with {len(self.tensorizer.get_playthrough_data())} steps to {filename}"
@@ -230,11 +276,18 @@ def main() -> None:
         description="Run a random walk agent through the deckbuilder game."
     )
     parser.add_argument(
-        "--output",
+        "--output-dir",
         "-o",
         type=str,
-        default=os.path.join("playthrough_data", "random_walk_playthrough.pt"),
-        help="Output file path to save the playthrough data (default: playthrough_data/random_walk_playthrough.pt)",
+        default="playthrough_data",
+        help="Output directory to save the playthrough data (default: playthrough_data)",
+    )
+    parser.add_argument(
+        "--output-file",
+        "-f",
+        type=str,
+        default=None,
+        help="Full path for the saved tensorized gameplay file (overrides --output-dir if provided)",
     )
     parser.add_argument(
         "--log-file",
@@ -243,25 +296,54 @@ def main() -> None:
         default=None,
         help="Path to log file for game output (optional)",
     )
+    parser.add_argument(
+        "--context-size",
+        "-c",
+        type=int,
+        default=1024,
+        help="Context size for the tensorizer (default: 1024)",
+    )
+    parser.add_argument(
+        "--end-turn-probability",
+        "-p",
+        type=float,
+        default=0.2,
+        help="Probability of ending the turn early (default: 0.2)",
+    )
     args = parser.parse_args()
 
     # Initialize the output manager
     output = GameOutputManager(args.log_file)
 
     output.print_header("Starting Random Walk Agent simulation")
-    output.print(f"Will save playthrough data to: {args.output}")
+    
+    # Determine the output file path
+    if args.output_file:
+        output_path = args.output_file
+    else:
+        # Create output directory if it doesn't exist
+        os.makedirs(args.output_dir, exist_ok=True)
+        
+        # Set a default output file name with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_path = os.path.join(args.output_dir, f"random_walk_{timestamp}.pt")
+    
+    output.print(f"Will save playthrough data to: {output_path}")
 
     # Set up game
     game = IroncladStarterVsCultist()
 
-    # Set up tensorizer in RECORD mode
+    # Set up tensorizer in RECORD mode with enhanced configuration
     tensorizer_config = SingleBattleEnvTensorizerConfig(
-        context_size=128, mode=TensorizerMode.RECORD
+        context_size=args.context_size,
+        mode=TensorizerMode.RECORD,
+        include_turn_count=True,
+        include_action_history=True,
     )
     tensorizer = SingleBattleEnvTensorizer(tensorizer_config)
 
     # Create agent
-    agent = RandomWalkAgent(game, tensorizer, output)
+    agent = RandomWalkAgent(game, tensorizer, output, args.end_turn_probability)
 
     # Play game
     turn = 1
@@ -280,18 +362,25 @@ def main() -> None:
         if game.opponents is None or len(game.opponents) == 0:
             raise ValueError("Opponents are not set")
 
-        opponent = game.opponents[0]
-        next_move = opponent.next_move
-        if next_move is None:
-            raise ValueError("Opponent next move is not set")
+        for enemy_idx, opponent in enumerate(game.opponents):
+            next_move = opponent.next_move
+            if next_move is None:
+                raise ValueError("Opponent next move is not set")
 
-        amount = 0
-        if next_move.amount is not None:
-            amount = next_move.amount
+            amount = 0
+            if next_move.amount is not None:
+                amount = next_move.amount
 
-        output.print_opponent_action(
-            opponent.opponent_type_uid.name, next_move.move_type.name, amount
-        )
+            output.print_opponent_action(
+                opponent.opponent_type_uid.name, next_move.move_type.name, amount
+            )
+
+            # Record the enemy action before it happens
+            agent.record_enemy_action(
+                enemy_idx, 
+                next_move.move_type,
+                amount
+            )
 
         # The enemy is about to act, record this state before the enemy acts
         agent.print_detailed_state("State before enemy action:")
@@ -318,7 +407,7 @@ def main() -> None:
         turn += 1
 
     # Save playthrough data
-    agent.save_playthrough(args.output)
+    agent.save_playthrough(output_path)
 
     # Close the output manager
     output.close()

@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, cast
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 import torch
 
@@ -6,6 +6,7 @@ from SampleEfficientRL.Envs.Deckbuilder.Tensorizers.SingleBattleEnvTensorizer im
     BINARY_NUMBER_BITS,
     MAX_ENCODED_NUMBER,
     SUPPORTED_ENEMY_INTENT_TYPES,
+    SUPPORTED_OPPONENT_TYPES,
     ActionType,
     PlaythroughStep,
     SUPPORTED_CARDS_UIDs,
@@ -21,7 +22,7 @@ class SingleBattleEnvDetensorizer:
     """
 
     def __init__(self) -> None:
-        """Initialize the detensorizer with mappings for cards, statuses, and intents."""
+        """Initialize the detensorizer with mappings for cards, statuses, intents, and opponent types."""
         # Create a mapping from index to card name (not UID object)
         self.card_uid_map: Dict[int, str] = {}
         for i, uid in enumerate(SUPPORTED_CARDS_UIDs):
@@ -39,21 +40,56 @@ class SingleBattleEnvDetensorizer:
         # Use cast to avoid type issues with mypy
         for i, intent in enumerate(cast(Any, SUPPORTED_ENEMY_INTENT_TYPES)):
             self.intent_type_map[i + 1] = str(intent.name)
+            
+        # Create mapping for opponent types
+        self.opponent_type_map: Dict[int, str] = {}
+        for i, opponent_type in enumerate(cast(Any, SUPPORTED_OPPONENT_TYPES)):
+            self.opponent_type_map[i + 1] = str(opponent_type.name)
+            
+        # Create mapping for action types
+        self.action_type_map = {
+            ActionType.PLAY_CARD.value: "PLAY_CARD",
+            ActionType.END_TURN.value: "END_TURN",
+            ActionType.NO_OP.value: "NO_OP",
+        }
+        
+        # Create token type mapping with only valid enum values
+        self.token_type_map = {
+            TokenType.DRAW_PILE_CARD.value: TokenType.DRAW_PILE_CARD,
+            TokenType.DISCARD_PILE_CARD.value: TokenType.DISCARD_PILE_CARD,
+            TokenType.EXHAUST_PILE_CARD.value: TokenType.EXHAUST_PILE_CARD,
+            TokenType.HAND_CARD.value: TokenType.HAND_CARD,
+            TokenType.ENTITY_HP.value: TokenType.ENTITY_HP,
+            TokenType.ENTITY_MAX_HP.value: TokenType.ENTITY_MAX_HP,
+            TokenType.ENTITY_ENERGY.value: TokenType.ENTITY_ENERGY,
+            TokenType.ENTITY_STATUS.value: TokenType.ENTITY_STATUS,
+            TokenType.ENEMY_INTENT.value: TokenType.ENEMY_INTENT,
+            TokenType.PLAYER_ACTION.value: TokenType.PLAYER_ACTION,
+            TokenType.ENEMY_ACTION.value: TokenType.ENEMY_ACTION,
+            TokenType.TURN_MARKER.value: TokenType.TURN_MARKER,
+        }
 
     def _extract_numeric_value(self, encoded_number_tensor: torch.Tensor) -> int:
         """
-        Extract the scalar numeric value from the encoded number tensor.
+        Extract a numeric value from the encoded binary representation.
 
         Args:
-            encoded_number_tensor: The encoded number tensor with shape (NUMBER_ENCODING_DIMS,)
+            encoded_number_tensor: The binary tensor encoding a number
 
         Returns:
-            The integer value represented by this encoding
+            The decoded integer value
         """
-        # Extract the scalar value (at position BINARY_NUMBER_BITS) and unnormalize it
-        scalar_index = BINARY_NUMBER_BITS
-        scalar_value = encoded_number_tensor[scalar_index].item() * MAX_ENCODED_NUMBER
-        return int(scalar_value)
+        # Convert tensor values to binary bits
+        binary_bits = []
+        for i in range(BINARY_NUMBER_BITS):
+            binary_bits.append(int(encoded_number_tensor[i].item()))
+            
+        # Convert binary representation to integer
+        value = 0
+        for bit in binary_bits:
+            value = (value << 1) | bit
+            
+        return value
 
     def decode_state(self, step: PlaythroughStep) -> Dict[str, Any]:
         """
@@ -70,6 +106,7 @@ class SingleBattleEnvDetensorizer:
             card_uid_indices,
             status_uid_indices,
             enemy_intent_indices,
+            opponent_type_indices,
             encoded_numbers,
         ) = step.state
 
@@ -82,6 +119,7 @@ class SingleBattleEnvDetensorizer:
                 "hand": [],
                 "draw_pile": [],
                 "discard_pile": [],
+                "exhaust_pile": [],
                 "statuses": {},
             },
             "enemies": [],
@@ -90,7 +128,9 @@ class SingleBattleEnvDetensorizer:
                 "card_idx": step.card_idx,
                 "target_idx": step.target_idx,
                 "reward": step.reward,
+                "turn_number": step.turn_number,
             },
+            "action_history": [],
         }
 
         # First pass to determine entity types and positions
@@ -110,7 +150,11 @@ class SingleBattleEnvDetensorizer:
         hand_cards_seen = 0
         discard_cards_seen = 0
         draw_cards_seen = 0
+        exhaust_cards_seen = 0
         current_enemy_idx = 0
+        
+        # Extract turn number if present
+        turn_number = step.turn_number  # Default to the one stored in the step
 
         for i in range(token_types.size(0)):
             # Skip zero tokens (padding)
@@ -118,9 +162,15 @@ class SingleBattleEnvDetensorizer:
                 continue
 
             token_type = int(token_types[i].item())
+            
+            # Handle turn marker
+            if token_type == TokenType.TURN_MARKER.value:
+                turn_number = self._extract_numeric_value(encoded_numbers[i])
+                state["turn_number"] = turn_number
+                continue
 
-            # Handle draw deck cards
-            if token_type == TokenType.DRAW_DECK_CARD.value:
+            # Handle draw pile cards
+            if token_type == TokenType.DRAW_PILE_CARD.value:
                 card_idx = int(card_uid_indices[i].item())
                 if card_idx > 0:
                     card_name = self.card_uid_map.get(card_idx, f"Unknown({card_idx})")
@@ -128,17 +178,23 @@ class SingleBattleEnvDetensorizer:
                         "name": card_name,
                         "cost": 1,  # Default cost, we don't have actual cost in tensor
                     }
-
-                    # First 5 cards are typically hand cards
-                    if hand_cards_seen < 5:
-                        state["player"]["hand"].append(card_info)
-                        hand_cards_seen += 1
-                    else:
-                        state["player"]["draw_pile"].append(card_info)
-                        draw_cards_seen += 1
+                    state["player"]["draw_pile"].append(card_info)
+                    draw_cards_seen += 1
+                    
+            # Handle hand cards
+            elif token_type == TokenType.HAND_CARD.value:
+                card_idx = int(card_uid_indices[i].item())
+                if card_idx > 0:
+                    card_name = self.card_uid_map.get(card_idx, f"Unknown({card_idx})")
+                    card_cost = self._extract_numeric_value(encoded_numbers[i])
+                    state["player"]["hand"].append({
+                        "name": card_name,
+                        "cost": card_cost,
+                    })
+                    hand_cards_seen += 1
 
             # Handle discard pile cards
-            elif token_type == TokenType.DISCARD_DECK_CARD.value:
+            elif token_type == TokenType.DISCARD_PILE_CARD.value:
                 card_idx = int(card_uid_indices[i].item())
                 if card_idx > 0:
                     card_name = self.card_uid_map.get(card_idx, f"Unknown({card_idx})")
@@ -149,88 +205,119 @@ class SingleBattleEnvDetensorizer:
                         }
                     )
                     discard_cards_seen += 1
+                    
+            # Handle exhaust pile cards
+            elif token_type == TokenType.EXHAUST_PILE_CARD.value:
+                card_idx = int(card_uid_indices[i].item())
+                if card_idx > 0:
+                    card_name = self.card_uid_map.get(card_idx, f"Unknown({card_idx})")
+                    state["player"]["exhaust_pile"].append(
+                        {
+                            "name": card_name,
+                            "cost": 1,  # Default cost, we don't have actual cost in tensor
+                        }
+                    )
+                    exhaust_cards_seen += 1
 
-            # Handle entity HP (could be player or enemy)
-            elif token_type == TokenType.ENTITY_HP.value:
-                hp_value = self._extract_numeric_value(encoded_numbers[i])
-
-                # If we're at the player position, this is player HP
-                if current_enemy_idx == 0:
-                    state["player"]["hp"] = hp_value
-                    current_enemy_idx += 1
-                else:
-                    # This is an enemy's HP
-                    enemy_idx = current_enemy_idx - 1
-                    # Create a new enemy if needed
-                    while len(state["enemies"]) <= enemy_idx:
-                        state["enemies"].append(
-                            {
-                                "type": "CULTIST",  # Default for test case
-                                "hp": 0,
-                                "max_hp": 0,
-                                "intent": None,
-                                "statuses": {},
-                            }
-                        )
-                    state["enemies"][enemy_idx]["hp"] = hp_value
-                    current_enemy_idx += 1
-
-            # Handle entity max HP
-            elif token_type == TokenType.ENTITY_MAX_HP.value:
-                max_hp_value = self._extract_numeric_value(encoded_numbers[i])
-
-                # If player max_hp is not set, this is for player
-                if state["player"]["max_hp"] == 0:
-                    state["player"]["max_hp"] = max_hp_value
-                else:
-                    # Find the first enemy without max_hp set
-                    for enemy in state["enemies"]:
-                        if enemy["max_hp"] == 0:
-                            enemy["max_hp"] = max_hp_value
-                            break
-
-            # Handle entity energy - always for player
+            # Handle player HP
+            elif token_type == TokenType.ENTITY_HP.value and player_position == 0:
+                player_position += 1  # Mark as processed
+                state["player"]["hp"] = self._extract_numeric_value(encoded_numbers[i])
+                
+            # Handle player max HP
+            elif token_type == TokenType.ENTITY_MAX_HP.value and player_position == 1:
+                player_position += 1  # Mark as processed
+                state["player"]["max_hp"] = self._extract_numeric_value(encoded_numbers[i])
+                
+            # Handle player energy
             elif token_type == TokenType.ENTITY_ENERGY.value:
-                state["player"]["energy"] = self._extract_numeric_value(
-                    encoded_numbers[i]
-                )
-
-            # Handle entity status
-            elif token_type == TokenType.ENTITY_STATUS.value:
+                state["player"]["energy"] = self._extract_numeric_value(encoded_numbers[i])
+                
+            # Handle player status
+            elif token_type == TokenType.ENTITY_STATUS.value and current_enemy_idx == 0:
                 status_idx = int(status_uid_indices[i].item())
-                status_amount = self._extract_numeric_value(encoded_numbers[i])
-
                 if status_idx > 0:
-                    status_name = self.status_uid_map.get(
-                        status_idx, f"Unknown({status_idx})"
-                    )
-
-                    # Check token position to determine if this is player or enemy status
-                    # For simplicity, we'll assume early statuses are for player
-                    if len(state["enemies"]) == 0 or not state["player"]["statuses"]:
-                        state["player"]["statuses"][status_name] = status_amount
-                    else:
-                        # Add to the most recently added enemy
-                        if state["enemies"]:
-                            enemy = state["enemies"][-1]
-                            enemy["statuses"][status_name] = status_amount
-
+                    status_name = self.status_uid_map.get(status_idx, f"Unknown({status_idx})")
+                    status_amount = self._extract_numeric_value(encoded_numbers[i])
+                    state["player"]["statuses"][status_name] = status_amount
+                
+            # Handle enemy HP
+            elif token_type == TokenType.ENTITY_HP.value:
+                # Create a new enemy if this is the first HP value for this enemy
+                if len(state["enemies"]) <= current_enemy_idx:
+                    # Get opponent type if available
+                    opponent_type = "Unknown"
+                    if i < opponent_type_indices.size(0) and opponent_type_indices[i].item() > 0:
+                        type_idx = int(opponent_type_indices[i].item())
+                        opponent_type = self.opponent_type_map.get(type_idx, f"Unknown({type_idx})")
+                    
+                    state["enemies"].append({
+                        "type": opponent_type,
+                        "hp": 0,
+                        "max_hp": 0,
+                        "statuses": {},
+                        "intents": []
+                    })
+                
+                state["enemies"][current_enemy_idx]["hp"] = self._extract_numeric_value(encoded_numbers[i])
+                
+            # Handle enemy max HP
+            elif token_type == TokenType.ENTITY_MAX_HP.value and current_enemy_idx > 0:
+                # Ensure we have an enemy entry
+                if len(state["enemies"]) > current_enemy_idx - 1:
+                    state["enemies"][current_enemy_idx - 1]["max_hp"] = self._extract_numeric_value(encoded_numbers[i])
+                
+            # Handle enemy status
+            elif token_type == TokenType.ENTITY_STATUS.value and current_enemy_idx > 0:
+                status_idx = int(status_uid_indices[i].item())
+                if status_idx > 0 and len(state["enemies"]) > current_enemy_idx - 1:
+                    status_name = self.status_uid_map.get(status_idx, f"Unknown({status_idx})")
+                    status_amount = self._extract_numeric_value(encoded_numbers[i])
+                    state["enemies"][current_enemy_idx - 1]["statuses"][status_name] = status_amount
+                
             # Handle enemy intent
-            elif token_type == TokenType.ENEMY_INTENT.value:
+            elif token_type == TokenType.ENEMY_INTENT.value and len(state["enemies"]) > 0:
                 intent_idx = int(enemy_intent_indices[i].item())
-                intent_amount = self._extract_numeric_value(encoded_numbers[i])
-
-                if intent_idx > 0 and state["enemies"]:
-                    intent_name = self.intent_type_map.get(
-                        intent_idx, f"Unknown({intent_idx})"
-                    )
-
-                    # Add to the most recently added enemy
-                    enemy = state["enemies"][-1]
-                    enemy["intent"] = {
-                        "name": intent_name,
-                        "amount": intent_amount,
-                    }
+                if intent_idx > 0:
+                    intent_type = self.intent_type_map.get(intent_idx, f"Unknown({intent_idx})")
+                    intent_amount = self._extract_numeric_value(encoded_numbers[i])
+                    last_enemy_idx = len(state["enemies"]) - 1
+                    state["enemies"][last_enemy_idx]["intents"].append({
+                        "type": intent_type,
+                        "value": intent_amount
+                    })
+                    # If it's the first intent, also set it as the main intent
+                    if "intent" not in state["enemies"][last_enemy_idx]:
+                        state["enemies"][last_enemy_idx]["intent"] = {
+                            "name": intent_type,
+                            "amount": intent_amount
+                        }
+                
+            # Handle player action
+            elif token_type == TokenType.PLAYER_ACTION.value:
+                # Placeholder for future expansion
+                pass
+                
+            # Handle enemy action
+            elif token_type == TokenType.ENEMY_ACTION.value:
+                # Record enemy action in action history
+                if "action_history" not in state:
+                    state["action_history"] = []
+                
+                action_type = "ENEMY_ACTION"
+                move_type = "Unknown"
+                enemy_idx = current_enemy_idx - 1 if current_enemy_idx > 0 else 0
+                
+                # Try to extract the move type from enemy intent indices
+                if i < enemy_intent_indices.size(0) and enemy_intent_indices[i].item() > 0:
+                    intent_idx = int(enemy_intent_indices[i].item())
+                    move_type = self.intent_type_map.get(intent_idx, f"Unknown({intent_idx})")
+                
+                state["action_history"].append({
+                    "type": action_type,
+                    "enemy_idx": enemy_idx,
+                    "move_type": move_type
+                })
 
         return state
 
@@ -257,32 +344,123 @@ class SingleBattleEnvDetensorizer:
 
     def is_end_turn_state(self, step: PlaythroughStep) -> bool:
         """
-        Check if this step represents the end of a turn.
+        Check if this step represents an end of turn action.
 
         Args:
-            step: The PlaythroughStep to check
+            step: The step to check
 
         Returns:
-            True if this step represents the end of a turn, False otherwise
+            True if this is an end turn action
         """
         return step.action_type == ActionType.END_TURN
 
-    def is_opponent_action_state(
-        self, step: PlaythroughStep, prev_step: Optional[PlaythroughStep]
-    ) -> bool:
+    def is_opponent_action_state(self, step: PlaythroughStep, prev_step: Optional[PlaythroughStep] = None) -> bool:
         """
-        Check if this step likely represents an opponent's action.
+        Check if this step likely represents an opponent action.
+        This is a heuristic based on comparing with the previous state.
 
         Args:
-            step: The current PlaythroughStep
-            prev_step: The previous PlaythroughStep, if any
+            step: The current step
+            prev_step: The previous step, if available
 
         Returns:
-            True if this step likely represents an opponent's action, False otherwise
+            True if this step likely represents an opponent action
         """
-        # Opponent action typically follows END_TURN and is a NO_OP
-        return (
-            step.action_type == ActionType.NO_OP
-            and prev_step is not None
-            and prev_step.action_type == ActionType.END_TURN
-        )
+        # If no previous step, can't determine
+        if prev_step is None:
+            return False
+            
+        # If player has less HP than before, likely an opponent action happened
+        player_hp_now = 0
+        player_hp_prev = 0
+        
+        # Find player HP in current step
+        token_types = step.state[0]
+        encoded_numbers = step.state[5]
+        
+        # Assume player is the first entity
+        for i in range(token_types.size(0)):
+            if token_types[i].item() == TokenType.ENTITY_HP.value:
+                player_hp_now = self._extract_numeric_value(encoded_numbers[i])
+                break
+                
+        # Find player HP in previous step
+        prev_token_types = prev_step.state[0]
+        prev_encoded_numbers = prev_step.state[5]
+        
+        for i in range(prev_token_types.size(0)):
+            if prev_token_types[i].item() == TokenType.ENTITY_HP.value:
+                player_hp_prev = self._extract_numeric_value(prev_encoded_numbers[i])
+                break
+                
+        # If player lost HP, likely an opponent action
+        if player_hp_now < player_hp_prev:
+            return True
+            
+        # Check for changes in player statuses that might indicate opponent action
+        return False
+        
+    def get_turn_number(self, step: PlaythroughStep) -> int:
+        """
+        Extract the turn number from a step.
+
+        Args:
+            step: The step to extract turn number from
+
+        Returns:
+            The turn number, or 0 if not found
+        """
+        # Use the turn number stored in the step if available
+        if hasattr(step, 'turn_number') and step.turn_number is not None:
+            return step.turn_number
+            
+        # Otherwise, try to find a turn marker in the state
+        token_types = step.state[0]
+        encoded_numbers = step.state[5]
+        
+        for i in range(token_types.size(0)):
+            if token_types[i].item() == TokenType.TURN_MARKER.value:
+                return self._extract_numeric_value(encoded_numbers[i])
+                
+        return 0  # Default if no turn number is found
+        
+    def get_step_reward(self, step: PlaythroughStep) -> float:
+        """
+        Get the reward associated with a step.
+        
+        Args:
+            step: The PlaythroughStep to process
+            
+        Returns:
+            The reward value for this step
+        """
+        return step.reward if hasattr(step, "reward") else 0.0
+        
+    def decode_playthrough(self, steps: List[PlaythroughStep]) -> List[Dict[str, Any]]:
+        """
+        Decode a full playthrough into a list of state representations.
+        
+        Args:
+            steps: List of PlaythroughSteps representing a game playthrough
+            
+        Returns:
+            A list of decoded state dictionaries with actions and rewards
+        """
+        decoded_states = []
+        
+        for i, step in enumerate(steps):
+            state = self.decode_state(step)
+            
+            # Add metadata
+            state["turn_number"] = self.get_turn_number(step)
+            state["reward"] = self.get_step_reward(step)
+            state["step_index"] = i
+            
+            # Determine if this is an opponent action by checking the previous step
+            prev_step = steps[i-1] if i > 0 else None
+            state["is_opponent_action"] = self.is_opponent_action_state(step, prev_step)
+            state["is_end_turn"] = self.is_end_turn_state(step)
+            
+            decoded_states.append(state)
+            
+        return decoded_states
