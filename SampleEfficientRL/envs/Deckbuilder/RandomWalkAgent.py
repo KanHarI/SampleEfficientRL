@@ -47,10 +47,16 @@ class RandomWalkAgent:
         tensor_state = self.tensorizer.tensorize(self.env)
         self.playthrough_data.append(tensor_state)
 
-    def record_game_state(self, action_type: ActionType = ActionType.NO_OP, card_idx: int = -1, target_idx: int = -1, reward: float = 0.0) -> None:
+    def record_game_state(
+        self,
+        action_type: ActionType = ActionType.NO_OP,
+        card_idx: int = -1,
+        target_idx: int = -1,
+        reward: float = 0.0,
+    ) -> None:
         """
         Record the current game state with detailed information.
-        
+
         Args:
             action_type: The type of action that led to this state
             card_idx: The index of the card played (if applicable)
@@ -64,12 +70,14 @@ class RandomWalkAgent:
         else:
             # Record state with NO_OP action
             state_tensor = self.tensorizer.tensorize(self.env)
-            self.tensorizer.record_action(state_tensor=state_tensor, action_type=action_type, reward=reward)
+            self.tensorizer.record_action(
+                state_tensor=state_tensor, action_type=action_type, reward=reward
+            )
 
     def print_detailed_state(self, message: str = "Current State:") -> None:
         """
         Print detailed state information of the game.
-        
+
         Args:
             message: Header message to display before state information
         """
@@ -79,7 +87,7 @@ class RandomWalkAgent:
 
         self.output.print_separator()
         self.output.print(message)
-        
+
         # Print player info
         self.output.print_player_info(
             player.current_health, player.max_health, player.energy
