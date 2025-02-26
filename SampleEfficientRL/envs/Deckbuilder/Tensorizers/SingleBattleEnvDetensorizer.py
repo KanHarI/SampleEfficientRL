@@ -1,3 +1,4 @@
+import math
 from typing import Any, Dict, List, Optional, Tuple, cast
 
 import torch
@@ -79,17 +80,8 @@ class SingleBattleEnvDetensorizer:
         Returns:
             The decoded integer value
         """
-        # Convert tensor values to binary bits
-        binary_bits = []
-        for i in range(BINARY_NUMBER_BITS):
-            binary_bits.append(int(encoded_number_tensor[i].item()))
-            
-        # Convert binary representation to integer
-        value = 0
-        for bit in binary_bits:
-            value = (value << 1) | bit
-            
-        return value
+        return round(encoded_number_tensor[BINARY_NUMBER_BITS].item() * MAX_ENCODED_NUMBER)
+
 
     def decode_state(self, step: PlaythroughStep) -> Dict[str, Any]:
         """
