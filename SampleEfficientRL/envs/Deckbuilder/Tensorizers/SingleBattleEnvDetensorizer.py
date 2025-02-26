@@ -6,6 +6,7 @@ import torch
 from SampleEfficientRL.Envs.Deckbuilder.Tensorizers.SingleBattleEnvTensorizer import (
     BINARY_NUMBER_BITS,
     MAX_ENCODED_NUMBER,
+    SIGN_BITS,
     SUPPORTED_ENEMY_INTENT_TYPES,
     SUPPORTED_OPPONENT_TYPES,
     ActionType,
@@ -80,7 +81,7 @@ class SingleBattleEnvDetensorizer:
         Returns:
             The decoded integer value
         """
-        return round(encoded_number_tensor[BINARY_NUMBER_BITS].item() * MAX_ENCODED_NUMBER)
+        return round(encoded_number_tensor[BINARY_NUMBER_BITS + SIGN_BITS].item() * MAX_ENCODED_NUMBER)
 
 
     def decode_state(self, step: PlaythroughStep) -> Dict[str, Any]:

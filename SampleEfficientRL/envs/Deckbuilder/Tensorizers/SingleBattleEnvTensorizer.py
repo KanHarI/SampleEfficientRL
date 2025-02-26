@@ -166,7 +166,8 @@ MAX_ENCODED_NUMBER = 1023
 BINARY_NUMBER_BITS = 10
 SCALAR_NUMBER_DIMS = 1
 LOG_NUMBER_DIMS = 1
-NUMBER_ENCODING_DIMS = BINARY_NUMBER_BITS + SCALAR_NUMBER_DIMS + LOG_NUMBER_DIMS
+SIGN_BITS = 1
+NUMBER_ENCODING_DIMS = SIGN_BITS + BINARY_NUMBER_BITS + SCALAR_NUMBER_DIMS + LOG_NUMBER_DIMS
 
 
 class TensorizerMode(Enum):
@@ -258,23 +259,24 @@ class SingleBattleEnvTensorizer:
         """
         # Cap the number
         num = min(num, MAX_ENCODED_NUMBER)
-
+        num = max(num, -MAX_ENCODED_NUMBER)
         # Initialize tensor for the encoded number
         encoded = torch.zeros(NUMBER_ENCODING_DIMS, dtype=torch.float)
 
+        encoded[0] = 1.0 if num >= 0 else -1.0
         # Binary bits (10 bits)
         for i in range(BINARY_NUMBER_BITS):
             if num & (1 << i):
-                encoded[i] = 1.0
+                encoded[i + SIGN_BITS] = 1.0
 
         # Scalar value (normalized to [0, 1])
-        encoded[BINARY_NUMBER_BITS] = float(num) / MAX_ENCODED_NUMBER
+        encoded[BINARY_NUMBER_BITS + SIGN_BITS] = float(num) / MAX_ENCODED_NUMBER
 
         # Log value
         if num > 0:
-            encoded[BINARY_NUMBER_BITS + SCALAR_NUMBER_DIMS] = math.log(float(num))
+            encoded[BINARY_NUMBER_BITS + SCALAR_NUMBER_DIMS + SIGN_BITS] = math.log(float(num))
         else:
-            encoded[BINARY_NUMBER_BITS + SCALAR_NUMBER_DIMS] = -1.0
+            encoded[BINARY_NUMBER_BITS + SCALAR_NUMBER_DIMS + SIGN_BITS] = -1.0
 
         return encoded
 
