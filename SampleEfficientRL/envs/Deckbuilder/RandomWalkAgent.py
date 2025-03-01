@@ -67,19 +67,17 @@ class RandomWalkAgent:
             reward: The reward for the action
         """
         if action_type == ActionType.PLAY_CARD and card_idx >= 0:
-            self.tensorizer.record_play_card(
-                self.env, card_idx, target_idx, reward
-            )
+            self.tensorizer.record_play_card(self.env, card_idx, target_idx, reward)
         elif action_type == ActionType.END_TURN:
             self.tensorizer.record_end_turn(self.env, reward)
         else:
             # Record state with NO_OP action
             state_tensor = self.tensorizer.tensorize(self.env)
             self.tensorizer.record_action(
-                state_tensor=state_tensor, 
-                action_type=action_type, 
+                state_tensor=state_tensor,
+                action_type=action_type,
                 reward=reward,
-                turn_number=self.env.num_turn
+                turn_number=self.env.num_turn,
             )
 
     def record_enemy_action(
@@ -91,7 +89,7 @@ class RandomWalkAgent:
     ) -> None:
         """
         Record an enemy action.
-        
+
         Args:
             enemy_idx: The index of the enemy taking the action
             move_type: The type of move the enemy is making
@@ -139,7 +137,7 @@ class RandomWalkAgent:
             self.output.print_card(i, card.card_uid.name, card.cost)
 
         # Print exhaust pile if it exists
-        if hasattr(player, 'exhaust_pile') and player.exhaust_pile:
+        if hasattr(player, "exhaust_pile") and player.exhaust_pile:
             self.output.print("Exhaust Pile:")
             for i, card in enumerate(player.exhaust_pile):
                 self.output.print_card(i, card.card_uid.name, card.cost)
@@ -186,7 +184,7 @@ class RandomWalkAgent:
         """
         self.env.start_turn()
         self.current_turn = self.env.num_turn
-        
+
         player = self.env.player
         if player is None:
             raise ValueError("Player is not set")
@@ -261,7 +259,7 @@ class RandomWalkAgent:
         directory = os.path.dirname(filename)
         if directory:
             os.makedirs(directory, exist_ok=True)
-            
+
         # Use the tensorizer's save_playthrough method
         self.tensorizer.save_playthrough(filename)
         self.output.print(
@@ -316,18 +314,18 @@ def main() -> None:
     output = GameOutputManager(args.log_file)
 
     output.print_header("Starting Random Walk Agent simulation")
-    
+
     # Determine the output file path
     if args.output_file:
         output_path = args.output_file
     else:
         # Create output directory if it doesn't exist
         os.makedirs(args.output_dir, exist_ok=True)
-        
+
         # Set a default output file name with timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_path = os.path.join(args.output_dir, f"random_walk_{timestamp}.pt")
-    
+
     output.print(f"Will save playthrough data to: {output_path}")
 
     # Set up game
@@ -376,11 +374,7 @@ def main() -> None:
             )
 
             # Record the enemy action before it happens
-            agent.record_enemy_action(
-                enemy_idx, 
-                next_move.move_type,
-                amount
-            )
+            agent.record_enemy_action(enemy_idx, next_move.move_type, amount)
 
         # The enemy is about to act, record this state before the enemy acts
         agent.print_detailed_state("State before enemy action:")

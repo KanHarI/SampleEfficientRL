@@ -85,7 +85,7 @@ def print_state(env: DeckbuilderSingleBattleEnv, output: GameOutputManager) -> N
 
 
 def player_turn(
-    env: DeckbuilderSingleBattleEnv, 
+    env: DeckbuilderSingleBattleEnv,
     output: GameOutputManager,
     tensorizer: Optional[SingleBattleEnvTensorizer] = None,
 ) -> str:
@@ -214,7 +214,7 @@ def main() -> None:
         else:
             # Create output directory if it doesn't exist
             os.makedirs(args.output_dir, exist_ok=True)
-        
+
         # Configure tensorizer for recording
         config = SingleBattleEnvTensorizerConfig(
             context_size=1024,  # Large enough for most game states
@@ -223,7 +223,9 @@ def main() -> None:
             include_action_history=True,
         )
         tensorizer = SingleBattleEnvTensorizer(config)
-        output.print("Gameplay recording enabled. Will save tensorized state at end of game.")
+        output.print(
+            "Gameplay recording enabled. Will save tensorized state at end of game."
+        )
 
     output.print_header("Starting Ironclad vs Cultist CLI Game")
     game = IroncladStarterVsCultist()
@@ -254,14 +256,11 @@ def main() -> None:
             output.print_opponent_action(
                 opponent.opponent_type_uid.name, next_move.move_type.name, amount
             )
-            
+
             # Record enemy action if tensorizer is available
             if tensorizer is not None:
                 tensorizer.record_enemy_action(
-                    game, 
-                    enemy_idx, 
-                    next_move.move_type, 
-                    amount
+                    game, enemy_idx, next_move.move_type, amount
                 )
 
         game.end_turn()
@@ -284,8 +283,10 @@ def main() -> None:
         else:
             # Use the default path with timestamp
             timestamp = os.path.basename(os.path.normpath(os.getcwd()))
-            recording_path = os.path.join(args.output_dir, f"playthrough_{timestamp}.pt")
-            
+            recording_path = os.path.join(
+                args.output_dir, f"playthrough_{timestamp}.pt"
+            )
+
         tensorizer.save_playthrough(recording_path)
         output.print(f"Saved gameplay recording to {recording_path}")
 

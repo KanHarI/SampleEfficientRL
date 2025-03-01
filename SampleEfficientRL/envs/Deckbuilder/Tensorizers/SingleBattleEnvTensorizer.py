@@ -16,15 +16,12 @@ from SampleEfficientRL.Envs.Deckbuilder.Status import StatusUIDs
 SUPPORTED_CARDS_UIDs: List[CardUIDs] = [
     # Curses
     CardUIDs.ASCENDERS_BANE,
-    
     # Status cards
     CardUIDs.SLIMED,
-    
     # Ironclad Starter Cards
     CardUIDs.BASH,
     CardUIDs.DEFEND,
     CardUIDs.STRIKE,
-    
     # Common Cards
     CardUIDs.ANGER,
     CardUIDs.ARMAMENTS,
@@ -46,7 +43,6 @@ SUPPORTED_CARDS_UIDs: List[CardUIDs] = [
     CardUIDs.TWIN_STRIKE,
     CardUIDs.WARCRY,
     CardUIDs.WILD_STRIKE,
-    
     # Uncommon Cards
     CardUIDs.BATTLE_TRANCE,
     CardUIDs.BLOOD_FOR_BLOOD,
@@ -84,7 +80,6 @@ SUPPORTED_CARDS_UIDs: List[CardUIDs] = [
     CardUIDs.SPOT_WEAKNESS,
     CardUIDs.UPPERCUT,
     CardUIDs.WHIRLWIND,
-    
     # Rare Cards
     CardUIDs.BARRICADE,
     CardUIDs.BERSERK,
@@ -167,7 +162,9 @@ BINARY_NUMBER_BITS = 10
 SCALAR_NUMBER_DIMS = 1
 LOG_NUMBER_DIMS = 1
 SIGN_BITS = 1
-NUMBER_ENCODING_DIMS = SIGN_BITS + BINARY_NUMBER_BITS + SCALAR_NUMBER_DIMS + LOG_NUMBER_DIMS
+NUMBER_ENCODING_DIMS = (
+    SIGN_BITS + BINARY_NUMBER_BITS + SCALAR_NUMBER_DIMS + LOG_NUMBER_DIMS
+)
 
 
 class TensorizerMode(Enum):
@@ -193,7 +190,14 @@ class SingleBattleEnvTensorizerConfig:
 class PlaythroughStep:
     """A single step in a playthrough, containing state and action information."""
 
-    state: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
+    state: Tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+    ]
     action_type: ActionType
     card_idx: Optional[int] = None
     target_idx: Optional[int] = None
@@ -204,17 +208,22 @@ class PlaythroughStep:
 @dataclass
 class GameStateCache:
     """Caches previous state information for action history recording."""
-    
+
     last_action_type: Optional[ActionType] = None
     last_card_idx: Optional[int] = None
     last_target_idx: Optional[int] = None
     previous_actions: List[Tuple[ActionType, Optional[int], Optional[int]]] = None
-    
+
     def __post_init__(self):
         if self.previous_actions is None:
             self.previous_actions = []
-    
-    def record_action(self, action_type: ActionType, card_idx: Optional[int] = None, target_idx: Optional[int] = None):
+
+    def record_action(
+        self,
+        action_type: ActionType,
+        card_idx: Optional[int] = None,
+        target_idx: Optional[int] = None,
+    ):
         """Record an action to the cache."""
         self.last_action_type = action_type
         self.last_card_idx = card_idx
@@ -237,11 +246,13 @@ class SingleBattleEnvTensorizer:
         }
         # Map enemy intent types to their indices for fast lookup
         self.enemy_intent_to_idx: Dict[NextMoveType, int] = {
-            intent_type: idx + 1 for idx, intent_type in enumerate(SUPPORTED_ENEMY_INTENT_TYPES)
+            intent_type: idx + 1
+            for idx, intent_type in enumerate(SUPPORTED_ENEMY_INTENT_TYPES)
         }
         # Map opponent types to their indices for fast lookup
         self.opponent_type_to_idx: Dict[OpponentTypeUIDs, int] = {
-            opponent_type: idx + 1 for idx, opponent_type in enumerate(SUPPORTED_OPPONENT_TYPES)
+            opponent_type: idx + 1
+            for idx, opponent_type in enumerate(SUPPORTED_OPPONENT_TYPES)
         }
 
     def _encode_number(self, num: int) -> torch.Tensor:
@@ -274,7 +285,9 @@ class SingleBattleEnvTensorizer:
 
         # Log value
         if num > 0:
-            encoded[BINARY_NUMBER_BITS + SCALAR_NUMBER_DIMS + SIGN_BITS] = math.log(float(num))
+            encoded[BINARY_NUMBER_BITS + SCALAR_NUMBER_DIMS + SIGN_BITS] = math.log(
+                float(num)
+            )
         else:
             encoded[BINARY_NUMBER_BITS + SCALAR_NUMBER_DIMS + SIGN_BITS] = -1.0
 
@@ -287,9 +300,14 @@ class SingleBattleEnvTensorizer:
     # Enemy intent type indices,
     # Opponent type indices,
     # Encoded numbers,
-    def tensorize(
-        self, state: DeckbuilderSingleBattleEnv
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def tensorize(self, state: DeckbuilderSingleBattleEnv) -> Tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+    ]:
         """
         Converts the current state of the environment into a tensor representation.
 
@@ -357,7 +375,7 @@ class SingleBattleEnvTensorizer:
             position += 1
 
         # Encode player's exhaust pile (if available)
-        if hasattr(player, 'exhaust_pile'):
+        if hasattr(player, "exhaust_pile"):
             for card in player.exhaust_pile:
                 check_context_size()
 
@@ -404,17 +422,21 @@ class SingleBattleEnvTensorizer:
         # Encode action history if configured
         if self.config.include_action_history and self.state_cache.previous_actions:
             # Limit to max_action_history most recent actions
-            recent_actions = self.state_cache.previous_actions[-self.config.max_action_history:]
-            
+            recent_actions = self.state_cache.previous_actions[
+                -self.config.max_action_history :
+            ]
+
             for action_type, card_idx, target_idx in recent_actions:
                 check_context_size()
-                
+
                 token_types[position] = TokenType.PLAYER_ACTION.value
                 if action_type == ActionType.PLAY_CARD and card_idx is not None:
                     # If we played a card, record which card it was
                     if 0 <= card_idx < len(player.hand):
                         card = player.hand[card_idx]
-                        card_uid_indices[position] = self.card_uid_to_idx.get(card.card_uid, 0)
+                        card_uid_indices[position] = self.card_uid_to_idx.get(
+                            card.card_uid, 0
+                        )
                 # Store the action type, card index, and target index
                 action_value = action_type.value
                 encoded_numbers[position] = self._encode_number(action_value)
@@ -428,9 +450,11 @@ class SingleBattleEnvTensorizer:
             if enemy.current_health > 0:  # Check if enemy is alive using current_health
                 # Enemy type
                 check_context_size()
-                opponent_type_indices[position] = self.opponent_type_to_idx.get(enemy.opponent_type_uid, 0)
+                opponent_type_indices[position] = self.opponent_type_to_idx.get(
+                    enemy.opponent_type_uid, 0
+                )
                 position += 1
-                
+
                 # Enemy HP
                 check_context_size()
                 token_types[position] = TokenType.ENTITY_HP.value
@@ -447,9 +471,13 @@ class SingleBattleEnvTensorizer:
                 if enemy.next_move:
                     check_context_size()
                     token_types[position] = TokenType.ENEMY_INTENT.value
-                    enemy_intent_indices[position] = self.enemy_intent_to_idx.get(enemy.next_move.move_type, 0)
+                    enemy_intent_indices[position] = self.enemy_intent_to_idx.get(
+                        enemy.next_move.move_type, 0
+                    )
                     if enemy.next_move.amount is not None:
-                        encoded_numbers[position] = self._encode_number(enemy.next_move.amount)
+                        encoded_numbers[position] = self._encode_number(
+                            enemy.next_move.amount
+                        )
                     position += 1
 
                 # Enemy statuses
@@ -457,7 +485,9 @@ class SingleBattleEnvTensorizer:
                     check_context_size()
 
                     token_types[position] = TokenType.ENTITY_STATUS.value
-                    status_uid_indices[position] = self.status_uid_to_idx.get(status_uid, 0)
+                    status_uid_indices[position] = self.status_uid_to_idx.get(
+                        status_uid, 0
+                    )
                     encoded_numbers[position] = self._encode_number(amount)
                     position += 1
 
@@ -473,7 +503,12 @@ class SingleBattleEnvTensorizer:
     def record_action(
         self,
         state_tensor: Tuple[
-            torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
+            torch.Tensor,
+            torch.Tensor,
+            torch.Tensor,
+            torch.Tensor,
+            torch.Tensor,
+            torch.Tensor,
         ],
         action_type: ActionType,
         card_idx: Optional[int] = None,
@@ -561,14 +596,14 @@ class SingleBattleEnvTensorizer:
 
         state_tensor = self.tensorize(state)
         self.record_action(
-            state_tensor=state_tensor, 
-            action_type=ActionType.END_TURN, 
+            state_tensor=state_tensor,
+            action_type=ActionType.END_TURN,
             reward=reward,
             turn_number=state.num_turn,
         )
-        
+
     def record_enemy_action(
-        self, 
+        self,
         state: DeckbuilderSingleBattleEnv,
         enemy_idx: int,
         move_type: NextMoveType,
@@ -577,7 +612,7 @@ class SingleBattleEnvTensorizer:
     ) -> None:
         """
         Record an enemy action.
-        
+
         Args:
             state: The current game state.
             enemy_idx: The index of the enemy taking the action.
@@ -587,7 +622,7 @@ class SingleBattleEnvTensorizer:
         """
         if self.config.mode != TensorizerMode.RECORD:
             return
-            
+
         state_tensor = self.tensorize(state)
         # We store enemy actions in the state cache but don't create playthrough steps for them
         # This is because we focus on the player's decision points for RL
@@ -595,7 +630,9 @@ class SingleBattleEnvTensorizer:
         self.state_cache.record_action(
             ActionType.NO_OP,  # Use NO_OP as a placeholder for enemy actions
             card_idx=enemy_idx,  # Store enemy index here
-            target_idx=self.enemy_intent_to_idx.get(move_type, 0)  # Store move type in target_idx
+            target_idx=self.enemy_intent_to_idx.get(
+                move_type, 0
+            ),  # Store move type in target_idx
         )
 
     def save_playthrough(self, filename: str) -> None:
@@ -606,11 +643,11 @@ class SingleBattleEnvTensorizer:
             filename: The path to save the data to.
         """
         torch.save(self.playthrough_steps, filename)
-        
+
     def load_playthrough(self, filename: str) -> None:
         """
         Load playthrough data from a file.
-        
+
         Args:
             filename: The path to load the data from.
         """
