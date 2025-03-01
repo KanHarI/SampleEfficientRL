@@ -1,11 +1,8 @@
-import os
-import re
-import shutil
 import subprocess
-import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
+from typing import List
 
 import pytest
 
@@ -13,7 +10,7 @@ import pytest
 class ReplayExplorerTest(unittest.TestCase):
     """Test case for the ReplayExplorer functionality."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up the test environment."""
         # Create a temporary directory for test output
         self.test_dir = Path("playthrough_data/test_output")
@@ -27,7 +24,7 @@ class ReplayExplorerTest(unittest.TestCase):
         self.original_log = self.test_dir / f"original_log_{self.timestamp}.txt"
         self.replay_log = self.test_dir / f"replay_log_{self.timestamp}.txt"
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         """Clean up the test environment."""
         # Uncomment to clean up test files after successful tests
         # if self.test_dir.exists():
@@ -37,7 +34,7 @@ class ReplayExplorerTest(unittest.TestCase):
     @pytest.mark.skip(
         reason="Test is failing due to mismatch in Intent outputs: 'Intent: ATTACK with amount 2' != 'Intent: RITUAL with amount 2'"
     )
-    def test_replay_explorer_output_matches_original(self):
+    def test_replay_explorer_output_matches_original(self) -> None:
         """
         Test that the ReplayExplorer produces the same output as the original game.
 
@@ -81,7 +78,7 @@ class ReplayExplorerTest(unittest.TestCase):
         print("Comparing log files...")
         self.compare_log_files(self.original_log, self.replay_log)
 
-    def compare_log_files(self, original_log: Path, replay_log: Path):
+    def compare_log_files(self, original_log: Path, replay_log: Path) -> None:
         """
         Compare the log files, ignoring metadata lines and allowing for different draw deck orders.
 
@@ -94,7 +91,7 @@ class ReplayExplorerTest(unittest.TestCase):
             replay_lines = [line.strip() for line in f2.readlines()]
 
             # Filter out metadata lines that we don't need to compare
-            def should_keep_line(line):
+            def should_keep_line(line: str) -> bool:
                 if not line:
                     return False
                 ignore_patterns = [
@@ -133,7 +130,7 @@ class ReplayExplorerTest(unittest.TestCase):
             # Instead of checking line counts, we'll focus on the important numeric values
 
             # Compare important numeric values (HP, Energy, Card Costs)
-            def extract_numeric_lines(lines):
+            def extract_numeric_lines(lines: List[str]) -> List[str]:
                 return [
                     line
                     for line in lines

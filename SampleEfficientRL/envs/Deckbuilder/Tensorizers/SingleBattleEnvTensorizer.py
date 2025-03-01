@@ -1,7 +1,7 @@
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple
 
 import torch
 
@@ -212,18 +212,20 @@ class GameStateCache:
     last_action_type: Optional[ActionType] = None
     last_card_idx: Optional[int] = None
     last_target_idx: Optional[int] = None
-    previous_actions: List[Tuple[ActionType, Optional[int], Optional[int]]] = None
+    previous_actions: List[Tuple[ActionType, Optional[int], Optional[int]]] = field(
+        default_factory=list
+    )
 
-    def __post_init__(self):
-        if self.previous_actions is None:
-            self.previous_actions = []
+    def __post_init__(self) -> None:
+        # No need to initialize previous_actions here as we're using default_factory
+        pass
 
     def record_action(
         self,
         action_type: ActionType,
         card_idx: Optional[int] = None,
         target_idx: Optional[int] = None,
-    ):
+    ) -> None:
         """Record an action to the cache."""
         self.last_action_type = action_type
         self.last_card_idx = card_idx
@@ -426,17 +428,24 @@ class SingleBattleEnvTensorizer:
                 -self.config.max_action_history :
             ]
 
-            for action_type, card_idx, target_idx in recent_actions:
+            for action_data in recent_actions:
                 check_context_size()
 
+                # Unpack the tuple manually but only take what we need
+                action_type = action_data[0]  # ActionType
+
                 token_types[position] = TokenType.PLAYER_ACTION.value
-                if action_type == ActionType.PLAY_CARD and card_idx is not None:
-                    # If we played a card, record which card it was
-                    if 0 <= card_idx < len(player.hand):
-                        card = player.hand[card_idx]
-                        card_uid_indices[position] = self.card_uid_to_idx.get(
-                            card.card_uid, 0
-                        )
+                if action_type == ActionType.PLAY_CARD:
+                    # Handle PLAY_CARD action
+                    card_idx_opt = action_data[1]  # Optional[int]
+                    if card_idx_opt is not None:
+                        card_idx = int(card_idx_opt)  # Now it's just int
+                        if 0 <= card_idx < len(player.hand):
+                            card = player.hand[card_idx]
+                            card_uid_indices[position] = self.card_uid_to_idx.get(
+                                card.card_uid, 0
+                            )
+
                 # Store the action type, card index, and target index
                 action_value = action_type.value
                 encoded_numbers[position] = self._encode_number(action_value)
@@ -614,7 +623,7 @@ class SingleBattleEnvTensorizer:
         Record an enemy action.
 
         Args:
-            state: The current game state.
+            state: The current environment state.
             enemy_idx: The index of the enemy taking the action.
             move_type: The type of move the enemy is making.
             amount: The amount associated with the move (e.g., attack damage).
@@ -623,8 +632,7 @@ class SingleBattleEnvTensorizer:
         if self.config.mode != TensorizerMode.RECORD:
             return
 
-        state_tensor = self.tensorize(state)
-        # We store enemy actions in the state cache but don't create playthrough steps for them
+        # Store enemy actions in the state cache but don't create playthrough steps for them
         # This is because we focus on the player's decision points for RL
         # But tracking enemy actions helps with understanding the game state
         self.state_cache.record_action(

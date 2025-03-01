@@ -1,10 +1,9 @@
 import argparse
 import os
 import random
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 import torch
-from torch.serialization import safe_globals
 
 from SampleEfficientRL.Envs.Deckbuilder.GameOutputManager import GameOutputManager
 from SampleEfficientRL.Envs.Deckbuilder.Tensorizers.SingleBattleEnvDetensorizer import (
@@ -13,9 +12,6 @@ from SampleEfficientRL.Envs.Deckbuilder.Tensorizers.SingleBattleEnvDetensorizer 
 from SampleEfficientRL.Envs.Deckbuilder.Tensorizers.SingleBattleEnvTensorizer import (
     ActionType,
     PlaythroughStep,
-    SingleBattleEnvTensorizer,
-    SingleBattleEnvTensorizerConfig,
-    TensorizerMode,
 )
 
 
@@ -58,7 +54,9 @@ class ReplayExplorer:
 
             # Method 2: Or use with weights_only=False (less secure, but works)
             # We're using both approaches for robustness
-            raw_playthrough_data = torch.load(self.replay_file, weights_only=False)
+            raw_playthrough_data: List[PlaythroughStep] = torch.load(
+                self.replay_file, weights_only=False
+            )
 
             self.output.print(
                 f"Successfully loaded raw data with {len(raw_playthrough_data)} steps"
@@ -374,8 +372,7 @@ class ReplayExplorer:
         self.output.print("=" * 40)
 
         # Track game state
-        current_turn = 0
-        steps_by_turn = {}
+        steps_by_turn: Dict[int, List[Tuple[int, Dict[str, Any]]]] = {}
 
         # First pass: group steps by turn for better organization
         for i, step in enumerate(self.playthrough_data):
@@ -384,18 +381,14 @@ class ReplayExplorer:
                 steps_by_turn[turn] = []
             steps_by_turn[turn].append((i, step))
 
-        # Get transitions to identify special states
-        transitions = self.find_state_transitions()
-        transition_map = {idx: transition_type for idx, transition_type in transitions}
-
         # Process each turn
-        for turn in sorted(steps_by_turn.keys()):
+        for turn, step_data in sorted(steps_by_turn.items()):
             if turn > 0:  # Skip turn 0 (initialization)
                 # Print turn header
                 self.output.print_subheader(f"Playing turn {turn}")
 
                 # Process steps in this turn
-                turn_steps = steps_by_turn[turn]
+                turn_steps = step_data
 
                 # Print initial state at beginning of turn
                 if turn_steps:
@@ -442,7 +435,6 @@ class ReplayExplorer:
                     elif action_type == "END_TURN":
                         # Handle end turn action
                         if last_action_type != "END_TURN":  # Avoid duplicate messages
-                            card_count = 0
                             if last_action_type != "PLAY_CARD":
                                 # If we didn't just play a card, explain why we're ending turn
                                 player = step.get("player", {})

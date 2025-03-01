@@ -2,7 +2,6 @@ import argparse
 import os
 import random
 import sys
-from pathlib import Path
 from typing import Optional
 
 from SampleEfficientRL.Envs.Deckbuilder.DeckbuilderSingleBattleEnv import (
@@ -15,7 +14,6 @@ from SampleEfficientRL.Envs.Deckbuilder.IroncladStarterVsCultist import (
 from SampleEfficientRL.Envs.Deckbuilder.Player import PlayCardResult
 from SampleEfficientRL.Envs.Deckbuilder.Status import StatusesOrder
 from SampleEfficientRL.Envs.Deckbuilder.Tensorizers.SingleBattleEnvTensorizer import (
-    ActionType,
     SingleBattleEnvTensorizer,
     SingleBattleEnvTensorizerConfig,
     TensorizerMode,
