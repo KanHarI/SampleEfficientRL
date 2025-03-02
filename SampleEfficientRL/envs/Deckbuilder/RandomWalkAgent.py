@@ -71,9 +71,9 @@ class RandomWalkAgent:
             self.tensorizer.record_end_turn(self.env, reward)
         else:
             # Record state with NO_OP action
-            state_tensor = self.tensorizer.tensorize(self.env)
+            state_dict = self.tensorizer.tensorize(self.env)
             self.tensorizer.record_action(
-                state_tensor=state_tensor,
+                state_dict=state_dict,
                 action_type=action_type,
                 reward=reward,
                 turn_number=self.env.num_turn,

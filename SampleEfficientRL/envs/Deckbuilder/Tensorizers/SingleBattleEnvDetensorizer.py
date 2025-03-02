@@ -1,18 +1,16 @@
 import json
-import os
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
 
 from SampleEfficientRL.Envs.Deckbuilder.Card import CardUIDs
-from SampleEfficientRL.Envs.Deckbuilder.Opponent import NextMoveType, OpponentTypeUIDs
+from SampleEfficientRL.Envs.Deckbuilder.Opponent import NextMoveType
 from SampleEfficientRL.Envs.Deckbuilder.Status import StatusUIDs
 from SampleEfficientRL.Envs.Deckbuilder.Tensorizers.SingleBattleEnvTensorizer import (
     ENTITY_TYPE,
     NUM_MAX_ENEMIES,
     SUPPORTED_ENEMY_INTENT_TYPES,
-    SUPPORTED_OPPONENT_TYPES,
     ActionType,
     SUPPORTED_CARDS_UIDs,
     SUPPORTED_STATUS_UIDs,
@@ -26,10 +24,10 @@ class SingleBattleEnvDetensorizer:
     representations, enabling analysis and replay of recorded playthroughs.
     """
 
-    def __init__(self):
-        self.version = "1.0"  # Should match the Tensorizer version
-        self.header = None
-        self.playthrough_data = []
+    def __init__(self) -> None:
+        self.version: str = "1.0"  # Should match the Tensorizer version
+        self.header: Optional[Dict[str, Any]] = None
+        self.playthrough_data: List[Dict[str, Any]] = []
 
     def _binary_to_number(
         self, binary_representation: Tuple[int, int, List[int]]
@@ -178,51 +176,32 @@ class SingleBattleEnvDetensorizer:
                 tensor_size_bytes = f.read(8)
                 tensor_size = int.from_bytes(tensor_size_bytes, byteorder="little")
 
-                # Read tensor data
-                tensor_bytes = f.read(tensor_size)
+                # Read state data
+                state_bytes = f.read(tensor_size)
 
-                # Reconstruct tensor
-                # Get tensor shape from header
-                tensor_shape = self.header.get("tensor_size")
-                if isinstance(tensor_shape, list):
-                    tensor_shape = tuple(tensor_shape)
-
-                # Convert bytes to numpy array then to tensor
-                state_array = np.frombuffer(tensor_bytes, dtype=np.float32)
-
-                # Reshape if possible
-                if tensor_shape and tensor_shape[0] > 0:
-                    try:
-                        state_array = state_array.reshape(tensor_shape)
-                    except ValueError:
-                        # If reshape fails, proceed with flat array
-                        pass
-
-                state_tensor = torch.from_numpy(state_array)
+                # Parse the JSON string to get the state dictionary
+                state_dict = json.loads(state_bytes.decode("utf-8"))
 
                 # Create record
-                record = {"state": state_tensor, **metadata}
+                record = {"state": state_dict, **metadata}
 
                 self.playthrough_data.append(record)
 
         return self.playthrough_data
 
-    def reconstruct_state(self, tensor_state: torch.Tensor) -> Dict[str, Any]:
+    def reconstruct_state(self, state_dict: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Reconstructs a tensor record back into a structured, human-readable game state.
+        Reconstructs a state dictionary back into a structured, human-readable game state.
 
         Args:
-            tensor_state: A tensor representing a game state.
+            state_dict: A dictionary containing state components and turn number.
 
         Returns:
             A dictionary representing the reconstructed game state.
         """
-        # Convert tensor to list of lists for easier processing
-        state_components = (
-            tensor_state.tolist()
-            if isinstance(tensor_state, torch.Tensor)
-            else tensor_state
-        )
+        # Get state components from the dictionary
+        state_components = state_dict.get("state_components", [])
+        turn_number = state_dict.get("turn", 0)
 
         # Initialize state structure
         state = {
@@ -237,7 +216,7 @@ class SingleBattleEnvDetensorizer:
                 "exhaust_pile": [],
             },
             "enemies": [],
-            "turn": 0,
+            "turn": turn_number,
         }
 
         # Initialize enemies structure (up to max enemies)
@@ -339,7 +318,7 @@ class SingleBattleEnvDetensorizer:
         Reconstructs an entire playthrough for analysis.
 
         Args:
-            playthrough_data: A list of tensor records. If None, uses the loaded data.
+            playthrough_data: A list of records or PlaythroughStep objects. If None, uses the loaded data.
 
         Returns:
             A list of reconstructed states with their associated actions.
@@ -353,25 +332,61 @@ class SingleBattleEnvDetensorizer:
         reconstructed_playthrough = []
 
         for record in playthrough_data:
+            # Get the state dictionary - handle both dict and PlaythroughStep
+            if hasattr(record, "state"):
+                # This is a PlaythroughStep object
+                state_dict = record.state
+            else:
+                # This is a dictionary record
+                state_dict = record.get("state", {})
+
             # Reconstruct state
-            state = self.reconstruct_state(record["state"])
+            reconstructed_state = self.reconstruct_state(state_dict)
 
             # Get action information
-            action_info = {
-                "action_type": ActionType(record["action_type"]).name,
-                "reward": record["reward"],
-                "turn": record["turn"],
-            }
+            if hasattr(record, "action_type"):
+                # PlaythroughStep object
+                action_info = {
+                    "action_type": ActionType(record.action_type).name,
+                    "reward": record.reward,
+                    "turn": record.turn,
+                }
 
-            # Add enemy-specific information if available
-            if "enemy_idx" in record:
-                action_info["enemy_idx"] = record["enemy_idx"]
-                action_info["move_type"] = record["move_type"]
-                action_info["amount"] = record["amount"]
+                # Add enemy action information if present
+                if hasattr(record, "enemy_idx") and record.enemy_idx is not None:
+                    action_info["enemy_idx"] = record.enemy_idx
+                    action_info["move_type"] = record.move_type
+                    action_info["amount"] = record.amount
+            else:
+                # Dictionary record
+                action_info = {
+                    "action_type": ActionType(record["action_type"]).name,
+                    "reward": record["reward"],
+                    "turn": record["turn"],
+                }
 
-            # Create combined record
-            reconstruction = {"state": state, "action": action_info}
+                # Add enemy action information if present
+                if record.get("enemy_idx") is not None:
+                    action_info["enemy_idx"] = record["enemy_idx"]
+                    action_info["move_type"] = record["move_type"]
+                    action_info["amount"] = record["amount"]
 
-            reconstructed_playthrough.append(reconstruction)
+            # Create a combined record with the state and action info
+            combined_record = {"state": reconstructed_state, **action_info}
+            reconstructed_playthrough.append(combined_record)
 
         return reconstructed_playthrough
+
+    def decode_playthrough(
+        self, playthrough_data: Optional[List[Dict[str, Any]]] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Alias for replay_playthrough for backward compatibility.
+
+        Args:
+            playthrough_data: A list of tensor records. If None, uses the loaded data.
+
+        Returns:
+            A list of reconstructed states with their associated actions.
+        """
+        return self.replay_playthrough(playthrough_data)

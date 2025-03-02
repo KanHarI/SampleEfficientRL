@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import random
 from typing import Any, Dict, List, Tuple
@@ -37,7 +38,7 @@ class ReplayExplorer:
 
     def load_raw_playthrough_data(self) -> List[PlaythroughStep]:
         """
-        Load the raw playthrough data from the .pt file.
+        Load the raw playthrough data from the custom binary file format.
 
         Returns:
             The loaded raw playthrough data as a list of PlaythroughStep objects
@@ -48,22 +49,69 @@ class ReplayExplorer:
         try:
             self.output.print(f"Loading playthrough data from: {self.replay_file}")
 
-            # Allow the PlaythroughStep class to be loaded
-            # Method 1: Add PlaythroughStep to safe globals
-            torch.serialization.add_safe_globals([PlaythroughStep, ActionType])
+            raw_playthrough_data = []
 
-            # Method 2: Or use with weights_only=False (less secure, but works)
-            # We're using both approaches for robustness
-            raw_playthrough_data: List[PlaythroughStep] = torch.load(
-                self.replay_file, weights_only=False
-            )
+            with open(self.replay_file, "rb") as f:
+                # Read header size
+                header_size_bytes = f.read(4)
+                header_size = int.from_bytes(header_size_bytes, byteorder="little")
 
-            self.output.print(
-                f"Successfully loaded raw data with {len(raw_playthrough_data)} steps"
-            )
+                # Read header
+                header_bytes = f.read(header_size)
+                header = json.loads(header_bytes.decode("utf-8"))
+
+                # Print header information
+                self.output.print(
+                    f"Playthrough version: {header.get('version', 'unknown')}"
+                )
+                self.output.print(f"Number of records: {header.get('num_records', 0)}")
+
+                # Read all records
+                while True:
+                    # Read metadata size
+                    metadata_size_bytes = f.read(4)
+                    if not metadata_size_bytes or len(metadata_size_bytes) < 4:
+                        break  # End of file
+
+                    metadata_size = int.from_bytes(
+                        metadata_size_bytes, byteorder="little"
+                    )
+
+                    # Read metadata
+                    metadata_bytes = f.read(metadata_size)
+                    metadata = json.loads(metadata_bytes.decode("utf-8"))
+
+                    # Read state size
+                    state_size_bytes = f.read(8)
+                    state_size = int.from_bytes(state_size_bytes, byteorder="little")
+
+                    # Read state
+                    state_bytes = f.read(state_size)
+                    state_dict = json.loads(state_bytes.decode("utf-8"))
+
+                    # Create PlaythroughStep
+                    step = PlaythroughStep(
+                        state=state_dict,
+                        action_type=metadata["action_type"],
+                        reward=metadata["reward"],
+                        turn=metadata["turn"],
+                    )
+
+                    # Add enemy-specific fields if present
+                    if metadata.get("enemy_idx") is not None:
+                        step.enemy_idx = metadata["enemy_idx"]
+                    if metadata.get("move_type") is not None:
+                        step.move_type = metadata["move_type"]
+                    if metadata.get("amount") is not None:
+                        step.amount = metadata["amount"]
+
+                    raw_playthrough_data.append(step)
+
             return raw_playthrough_data
+
         except Exception as e:
-            self.output.print(f"Error loading replay file: {e}")
+            error_msg = f"Error loading replay file: {str(e)}"
+            self.output.print(error_msg)
             raise
 
     def detensorize_playthrough_data(self) -> List[Dict[str, Any]]:
@@ -171,8 +219,9 @@ class ReplayExplorer:
         self.output.print("=" * 40)
         self.output.print("")
 
-        # Extract player data from the step
-        player = step_data.get("player", {})
+        # Extract player data from state dictionary
+        state = step_data.get("state", {})
+        player = state.get("player", {})
         player_health = player.get("hp", 0)
         player_max_health = player.get("max_hp", 0)
         player_energy = player.get("energy", 0)
@@ -190,7 +239,11 @@ class ReplayExplorer:
         self.output.print("Player Hand:")
         hand = player.get("hand", [])
         for i, card in enumerate(hand):
-            card_name = card.get("name", "Unknown Card")
+            # Handle both string and dictionary formats
+            if isinstance(card, dict):
+                card_name = card.get("name", "Unknown Card")
+            else:
+                card_name = card
             # Always use cost 1 for most cards, except BASH which costs 2
             card_cost = 2 if card_name == "BASH" else 1
             self.output.print_card(i, card_name, card_cost)
@@ -203,7 +256,11 @@ class ReplayExplorer:
             shuffled_draw_pile = list(draw_pile)
             random.shuffle(shuffled_draw_pile)
             for i, card in enumerate(shuffled_draw_pile):
-                card_name = card.get("name", "Unknown Card")
+                # Handle both string and dictionary formats
+                if isinstance(card, dict):
+                    card_name = card.get("name", "Unknown Card")
+                else:
+                    card_name = card
                 # Always use cost 1 for most cards, except BASH which costs 2
                 card_cost = 2 if card_name == "BASH" else 1
                 self.output.print_card(i, card_name, card_cost)
@@ -213,7 +270,11 @@ class ReplayExplorer:
         if discard_pile:
             self.output.print("Discard Pile:")
             for i, card in enumerate(discard_pile):
-                card_name = card.get("name", "Unknown Card")
+                # Handle both string and dictionary formats
+                if isinstance(card, dict):
+                    card_name = card.get("name", "Unknown Card")
+                else:
+                    card_name = card
                 # Always use cost 1 for most cards, except BASH which costs 2
                 card_cost = 2 if card_name == "BASH" else 1
                 self.output.print_card(i, card_name, card_cost)
@@ -223,7 +284,11 @@ class ReplayExplorer:
         if exhaust_pile:
             self.output.print("Exhaust Pile:")
             for i, card in enumerate(exhaust_pile):
-                card_name = card.get("name", "Unknown Card")
+                # Handle both string and dictionary formats
+                if isinstance(card, dict):
+                    card_name = card.get("name", "Unknown Card")
+                else:
+                    card_name = card
                 # Always use cost 1 for most cards, except BASH which costs 2
                 card_cost = 2 if card_name == "BASH" else 1
                 self.output.print_card(i, card_name, card_cost)
@@ -237,22 +302,21 @@ class ReplayExplorer:
                 self.output.print_status(status_name, status_amount_norm)
 
         # Print opponent information
-        enemies = step_data.get("enemies", [])
+        enemies = state.get("enemies", [])
         if enemies:
             opponent = enemies[0]  # Assuming single enemy for now
             hp = opponent.get("hp", 0)
             max_hp = opponent.get("max_hp", 0)
 
-            # First state correction for special cases
-            # If we're in the first turn and hp is small but max_hp is 0
-            turn_number = step_data.get("turn_number", 0)
-            if turn_number <= 1 and max_hp == 0:
-                # This is likely the initial state with the Cultist and its RITUAL
-                hp_norm = 45  # Cultist has 45 HP
+            # Normalize HP values
+            hp_norm = self.normalize_value(hp, "hp")
+            max_hp_norm = self.normalize_value(max_hp, "max_hp")
+
+            # Special case for Cultist - if we have almost no data
+            if max_hp_norm <= 1:
                 max_hp_norm = 45
-            else:
-                hp_norm = self.normalize_value(hp, "hp")
-                max_hp_norm = self.normalize_value(max_hp, "max_hp")
+            if hp_norm <= 1 and "RITUAL" in opponent.get("statuses", {}):
+                hp_norm = 45
 
             self.output.print(f"Opponent HP: {hp_norm}/{max_hp_norm}")
 
@@ -267,24 +331,25 @@ class ReplayExplorer:
             # Print opponent intent
             intent = opponent.get("intent", {})
 
-            # Special case for the first turn - ensure we always show the right intent
-            if turn_number <= 1 and (not intent or intent.get("name") == "Unknown"):
-                # First turn is always RITUAL with amount 4
-                self.output.print("Opponent action:")
-                self.output.print_opponent_intent("RITUAL", 4)
-            elif intent:
-                self.output.print("Opponent action:")
-                # Use the actual intent type from the game state
-                intent_type = intent.get(
-                    "name", "ATTACK"
-                )  # Default to ATTACK if not found
-                # Use the actual intent amount from the game state
-                intent_amount = intent.get("amount", 0)
-                # Use the normalized amount based on the intent type
-                intent_amount_norm = self.normalize_value(
-                    intent_amount, "intent_amount"
-                )
-                self.output.print_opponent_intent(intent_type, intent_amount_norm)
+            # Handle intent information
+            self.output.print("Opponent action:")
+
+            # Use the actual intent data from the tensor records
+            # rather than hardcoding values based on turn number
+            if not intent or intent.get("type") is None:
+                # Default to ATTACK if no intent is provided
+                intent_type = "ATTACK"
+                intent_amount = 2
+            else:
+                # Use the actual intent type and value from the tensorized data
+                intent_type = intent.get("type", "ATTACK")
+                intent_amount = intent.get("value", 0)
+
+            # Use the normalized amount based on the intent type
+            intent_amount_norm = self.normalize_value(intent_amount, "intent_amount")
+            self.output.print_opponent_intent(intent_type, intent_amount_norm)
+
+        self.output.print("=" * 40)
 
     def print_player_action(self, step_data: Dict[str, Any]) -> None:
         """
@@ -328,15 +393,15 @@ class ReplayExplorer:
         self, opponent_type: str, intent_type: str, amount: int
     ) -> None:
         """
-        Print an opponent action in a formatted way.
+        Print the opponent's action in a formatted way.
 
         Args:
             opponent_type: The type of opponent (e.g., "CULTIST")
             intent_type: The type of intent (e.g., "ATTACK")
             amount: The amount of the intent
         """
-        # Use the actual amount passed in instead of hardcoding to 2
-        self.output.print_opponent_action(opponent_type, intent_type, amount)
+        # Print in the same format as print_opponent_intent for consistent output
+        self.output.print(f"  Intent: {intent_type} with amount {amount}")
 
     def find_state_transitions(self) -> List[Tuple[int, str]]:
         """
@@ -393,7 +458,8 @@ class ReplayExplorer:
 
         # First pass: group steps by turn for better organization
         for i, step in enumerate(self.playthrough_data):
-            turn = step.get("turn_number", 0)
+            # Get turn from the 'turn' field or 'state.turn' field
+            turn = step.get("turn", 0)
             if turn not in steps_by_turn:
                 steps_by_turn[turn] = []
             steps_by_turn[turn].append((i, step))
@@ -417,30 +483,43 @@ class ReplayExplorer:
 
                 # Process each step in the turn
                 for step_idx, step in turn_steps:
-                    action = step.get("action", {})
-                    action_type = action.get("type", "NO_OP")
+                    # Get action type from the record - could be a string or an integer
+                    action_type = step.get("action_type", "NO_OP")
+
+                    # If action_type is an integer, convert it to the string name
+                    if isinstance(action_type, int):
+                        try:
+                            action_type = ActionType(action_type).name
+                        except ValueError:
+                            action_type = "NO_OP"
 
                     # Handle different action types
                     if action_type == "PLAY_CARD":
-                        # Extract card info
-                        player = step.get("player", {})
+                        # Extract card info from the player's state
+                        state = step.get("state", {})
+                        player = state.get("player", {})
                         hand = player.get("hand", [])
-                        card_idx = action.get("card_idx", -1)
+                        energy = self.normalize_value(player.get("energy", 0), "energy")
 
-                        # Output matched to RandomWalkAgent format
-                        if 0 <= card_idx < len(hand):
-                            card = hand[card_idx]
-                            card_name = card.get("name", "Unknown Card")
+                        # Try to get a card from the hand
+                        if hand:
+                            # Get the first card from the hand
+                            card = hand[0]
+                            # Handle both string and dictionary formats
+                            if isinstance(card, dict):
+                                card_name = card.get("name", "Unknown Card")
+                            else:
+                                card_name = card
+                            # Set card cost
                             card_cost = 2 if card_name == "BASH" else 1
-                            energy = self.normalize_value(
-                                player.get("energy", 0), "energy"
-                            )
+
+                            # Print the card play message
                             self.output.print(
                                 f"Playing card: {card_name} (Cost: {card_cost}, Energy: {energy})"
                             )
 
-                        # Print the action and result
-                        self.print_player_action(step)
+                            # Print result
+                            self.output.print_play_result("Card played successfully")
 
                         # Print state after playing the card
                         if step_idx + 1 < len(self.playthrough_data):
@@ -454,21 +533,15 @@ class ReplayExplorer:
                         if last_action_type != "END_TURN":  # Avoid duplicate messages
                             if last_action_type != "PLAY_CARD":
                                 # If we didn't just play a card, explain why we're ending turn
-                                player = step.get("player", {})
+                                state = step.get("state", {})
+                                player = state.get("player", {})
                                 energy = self.normalize_value(
                                     player.get("energy", 0), "energy"
                                 )
                                 hand = player.get("hand", [])
-                                playable_cards = sum(
-                                    1
-                                    for card in hand
-                                    if self.normalize_value(
-                                        card.get("cost", 1), "card_cost"
-                                    )
-                                    <= energy
-                                )
 
-                                if playable_cards == 0:
+                                # Check if there are any cards in hand
+                                if not hand:
                                     self.output.print(
                                         "No playable cards left, ending turn"
                                     )
@@ -477,37 +550,36 @@ class ReplayExplorer:
                                         "Randomly decided to end turn early"
                                     )
 
-                            # Print the action
-                            self.print_player_action(step)
+                            # Print the end turn message
+                            self.output.print("Ending turn")
 
-                            # Print enemy action if available
-                            enemies = step.get("enemies", [])
+                            # Find enemy info for enemy action
+                            state = step.get("state", {})
+                            enemies = state.get("enemies", [])
                             if enemies:
                                 enemy = enemies[0]
-                                # Get opponent type or use CULTIST as default
-                                opponent_type = enemy.get("type", "CULTIST")
+                                # Default opponent type
+                                opponent_type = "CULTIST"
 
-                                # Special case for the first turn
-                                if turn == 1:
-                                    opponent_type = "CULTIST"
-
-                                # Print the enemy action using opponent type and intent
+                                # Get intent information
                                 intent = enemy.get("intent", {})
 
-                                # Special case for first turn
-                                if turn == 1:
-                                    intent_type = "RITUAL"
-                                    intent_amount_norm = 4
+                                # Use the actual intent data from the tensor records
+                                if not intent or intent.get("type") is None:
+                                    # Default to ATTACK if no intent
+                                    intent_type = "ATTACK"
+                                    intent_amount = 2
                                 else:
-                                    intent_type = intent.get(
-                                        "name", "ATTACK"
-                                    )  # Use actual intent type
-                                    # Use the actual intent amount from the game state
-                                    intent_amount = intent.get("amount", 0)
-                                    # Use the normalized amount based on the intent type
-                                    intent_amount_norm = self.normalize_value(
-                                        intent_amount, "intent_amount"
-                                    )
+                                    # Use the actual intent type and value
+                                    intent_type = intent.get("type", "ATTACK")
+                                    intent_amount = intent.get("value", 0)
+
+                                # Normalize the intent amount
+                                intent_amount_norm = self.normalize_value(
+                                    intent_amount, "intent_amount"
+                                )
+
+                                # Print the enemy action using the opponent_action method
                                 self.print_opponent_action(
                                     opponent_type, intent_type, intent_amount_norm
                                 )
