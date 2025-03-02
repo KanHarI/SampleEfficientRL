@@ -1,8 +1,12 @@
+import json
 import math
+import os
+import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
 import torch
 
 from SampleEfficientRL.Envs.Deckbuilder.Card import CardUIDs
@@ -152,511 +156,390 @@ class TokenType(Enum):
 class ActionType(Enum):
     PLAY_CARD = 0
     END_TURN = 1
-    NO_OP = 2  # For states where no action is taken
+    NO_OP = 2
+    ENEMY_ACTION = 3
 
 
 NUM_MAX_ENEMIES = ENTITY_TYPE.ENEMY_6.value
 
-MAX_ENCODED_NUMBER = 1023
-BINARY_NUMBER_BITS = 10
-SCALAR_NUMBER_DIMS = 1
-LOG_NUMBER_DIMS = 1
-SIGN_BITS = 1
-NUMBER_ENCODING_DIMS = (
-    SIGN_BITS + BINARY_NUMBER_BITS + SCALAR_NUMBER_DIMS + LOG_NUMBER_DIMS
-)
-
-
-class TensorizerMode(Enum):
-    OBSERVE = 0  # Just observe current game state
-    RECORD = 1  # Record playthrough with actions
-
-
-@dataclass
-class SingleBattleEnvTensorizerConfig:
-    """
-    Input for this tensorizer is the current state of the environment
-    Output is (savable, serializable) tensor representation of the state
-    """
-
-    context_size: int
-    mode: TensorizerMode = TensorizerMode.OBSERVE
-    include_turn_count: bool = True
-    include_action_history: bool = True
-    max_action_history: int = 10  # Maximum number of previous actions to include
-
-
-@dataclass
-class PlaythroughStep:
-    """A single step in a playthrough, containing state and action information."""
-
-    state: Tuple[
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-    ]
-    action_type: ActionType
-    card_idx: Optional[int] = None
-    target_idx: Optional[int] = None
-    reward: float = 0.0
-    turn_number: int = 0
-
-
-@dataclass
-class GameStateCache:
-    """Caches previous state information for action history recording."""
-
-    last_action_type: Optional[ActionType] = None
-    last_card_idx: Optional[int] = None
-    last_target_idx: Optional[int] = None
-    previous_actions: List[Tuple[ActionType, Optional[int], Optional[int]]] = field(
-        default_factory=list
-    )
-
-    def __post_init__(self) -> None:
-        # No need to initialize previous_actions here as we're using default_factory
-        pass
-
-    def record_action(
-        self,
-        action_type: ActionType,
-        card_idx: Optional[int] = None,
-        target_idx: Optional[int] = None,
-    ) -> None:
-        """Record an action to the cache."""
-        self.last_action_type = action_type
-        self.last_card_idx = card_idx
-        self.last_target_idx = target_idx
-        self.previous_actions.append((action_type, card_idx, target_idx))
-
 
 class SingleBattleEnvTensorizer:
-    def __init__(self, config: SingleBattleEnvTensorizerConfig):
-        self.config = config
-        self.playthrough_steps: List[PlaythroughStep] = []
-        self.state_cache = GameStateCache()
-        # Map card UIDs to their indices for fast lookup
-        self.card_uid_to_idx: Dict[CardUIDs, int] = {
-            card_uid: idx + 1 for idx, card_uid in enumerate(SUPPORTED_CARDS_UIDs)
-        }
-        # Map status UIDs to their indices for fast lookup
-        self.status_uid_to_idx: Dict[StatusUIDs, int] = {
-            status_uid: idx + 1 for idx, status_uid in enumerate(SUPPORTED_STATUS_UIDs)
-        }
-        # Map enemy intent types to their indices for fast lookup
-        self.enemy_intent_to_idx: Dict[NextMoveType, int] = {
-            intent_type: idx + 1
-            for idx, intent_type in enumerate(SUPPORTED_ENEMY_INTENT_TYPES)
-        }
-        # Map opponent types to their indices for fast lookup
-        self.opponent_type_to_idx: Dict[OpponentTypeUIDs, int] = {
-            opponent_type: idx + 1
-            for idx, opponent_type in enumerate(SUPPORTED_OPPONENT_TYPES)
-        }
+    """
+    Converts DeckbuilderSingleBattleEnv states into tensor representations
+    and logs game actions for later analysis or replay.
+    """
 
-    def _encode_number(self, num: int) -> torch.Tensor:
+    def __init__(self):
+        self.tensor_records = []
+        self.current_turn = 0
+        self.version = "1.0"  # Version for serialization compatibility
+
+    def _convert_number_to_binary(self, num: int) -> Tuple[int, int, List[int]]:
         """
-        Encodes a number into a multi-dimensional representation:
+        Converts a number to the specified binary format:
+        - Scalar value
+        - Sign bit (0 for positive, 1 for negative)
         - 10 binary bits
-        - The scalar value (normalized)
-        - The log (base e) of the scalar value (or -1 for 0)
-
-        Args:
-            num: The number to encode
 
         Returns:
-            A tensor with shape (NUMBER_ENCODING_DIMS,) containing the encoded number
+            Tuple of (scalar_value, sign_bit, binary_list)
         """
-        # Cap the number
-        num = min(num, MAX_ENCODED_NUMBER)
-        num = max(num, -MAX_ENCODED_NUMBER)
-        # Initialize tensor for the encoded number
-        encoded = torch.zeros(NUMBER_ENCODING_DIMS, dtype=torch.float)
+        scalar_value = num
+        sign_bit = 0 if num >= 0 else 1
+        abs_value = abs(num)
 
-        encoded[0] = 1.0 if num >= 0 else -1.0
-        # Binary bits (10 bits)
-        for i in range(BINARY_NUMBER_BITS):
-            if num & (1 << i):
-                encoded[i + SIGN_BITS] = 1.0
+        # Convert to 10-bit binary representation
+        binary = []
+        for i in range(9, -1, -1):
+            bit = (abs_value >> i) & 1
+            binary.append(bit)
 
-        # Scalar value (normalized to [0, 1])
-        encoded[BINARY_NUMBER_BITS + SIGN_BITS] = float(num) / MAX_ENCODED_NUMBER
+        return (scalar_value, sign_bit, binary)
 
-        # Log value
-        if num > 0:
-            encoded[BINARY_NUMBER_BITS + SCALAR_NUMBER_DIMS + SIGN_BITS] = math.log(
-                float(num)
+    def _encode_card(self, card_uid: CardUIDs) -> List[int]:
+        """
+        Encodes a card as a one-hot vector based on the supported cards.
+
+        Returns:
+            A one-hot encoded vector representing the card.
+        """
+        encoding = [0] * len(SUPPORTED_CARDS_UIDs)
+        if card_uid in SUPPORTED_CARDS_UIDs:
+            index = SUPPORTED_CARDS_UIDs.index(card_uid)
+            encoding[index] = 1
+        return encoding
+
+    def _encode_status(self, status_uid: StatusUIDs, value: int) -> List[Any]:
+        """
+        Encodes a status and its value.
+
+        Returns:
+            A list containing the status one-hot encoding and binary value representation.
+        """
+        # One-hot encode the status type
+        status_encoding = [0] * len(SUPPORTED_STATUS_UIDs)
+        if status_uid in SUPPORTED_STATUS_UIDs:
+            index = SUPPORTED_STATUS_UIDs.index(status_uid)
+            status_encoding[index] = 1
+
+        # Convert the value to binary representation
+        value_binary = self._convert_number_to_binary(value)
+
+        return status_encoding + [value_binary]
+
+    def _encode_enemy_intent(self, intent_type: NextMoveType, value: int) -> List[Any]:
+        """
+        Encodes an enemy's next move intent.
+
+        Returns:
+            A list containing the intent one-hot encoding and binary value representation.
+        """
+        # One-hot encode the intent type
+        intent_encoding = [0] * len(SUPPORTED_ENEMY_INTENT_TYPES)
+        if intent_type in SUPPORTED_ENEMY_INTENT_TYPES:
+            index = SUPPORTED_ENEMY_INTENT_TYPES.index(intent_type)
+            intent_encoding[index] = 1
+
+        # Convert the value to binary representation
+        value_binary = self._convert_number_to_binary(value)
+
+        return intent_encoding + [value_binary]
+
+    def tensorize(self, env: DeckbuilderSingleBattleEnv) -> torch.Tensor:
+        """
+        Converts the current game state into a tensor record.
+
+        Args:
+            env: The DeckbuilderSingleBattleEnv instance.
+
+        Returns:
+            A tensor representing the current game state.
+        """
+        state_components = []
+
+        # Player HP
+        player_hp = self._convert_number_to_binary(env.player.hp)
+        player_max_hp = self._convert_number_to_binary(env.player.max_hp)
+        player_energy = self._convert_number_to_binary(env.player.energy)
+        state_components.append(
+            [TokenType.ENTITY_HP.value, ENTITY_TYPE.PLAYER.value, player_hp]
+        )
+        state_components.append(
+            [TokenType.ENTITY_MAX_HP.value, ENTITY_TYPE.PLAYER.value, player_max_hp]
+        )
+        state_components.append(
+            [TokenType.ENTITY_ENERGY.value, ENTITY_TYPE.PLAYER.value, player_energy]
+        )
+
+        # Player statuses
+        for status_uid, value in env.player.statuses.items():
+            status_encoding = self._encode_status(status_uid, value)
+            state_components.append(
+                [
+                    TokenType.ENTITY_STATUS.value,
+                    ENTITY_TYPE.PLAYER.value,
+                    status_encoding,
+                ]
             )
-        else:
-            encoded[BINARY_NUMBER_BITS + SCALAR_NUMBER_DIMS + SIGN_BITS] = -1.0
 
-        return encoded
+        # Enemies information
+        for enemy_idx, enemy in enumerate(env.enemies, 1):
+            if enemy_idx > NUM_MAX_ENEMIES:
+                break
 
-    # Return tensors tuple:
-    # Token types,
-    # Card uid indices,
-    # Status uid indices,
-    # Enemy intent type indices,
-    # Opponent type indices,
-    # Encoded numbers,
-    def tensorize(self, state: DeckbuilderSingleBattleEnv) -> Tuple[
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-    ]:
-        """
-        Converts the current state of the environment into a tensor representation.
+            # Enemy HP
+            enemy_hp = self._convert_number_to_binary(enemy.hp)
+            enemy_max_hp = self._convert_number_to_binary(enemy.max_hp)
+            state_components.append([TokenType.ENTITY_HP.value, enemy_idx, enemy_hp])
+            state_components.append(
+                [TokenType.ENTITY_MAX_HP.value, enemy_idx, enemy_max_hp]
+            )
 
-        Args:
-            state: The current state of the environment.
-
-        Returns:
-            A tuple of tensors:
-            - token_types: The types of tokens in the context.
-            - card_uid_indices: The indices of card UIDs in the context.
-            - status_uid_indices: The indices of status UIDs in the context.
-            - enemy_intent_indices: The indices of enemy intent types in the context.
-            - opponent_type_indices: The indices of opponent types in the context.
-            - encoded_numbers: The encoded numerical values in the context.
-
-        Raises:
-            ValueError: If the state representation exceeds the configured context size.
-        """
-        # Initialize tensors with zeros
-        token_types = torch.zeros(self.config.context_size, dtype=torch.long)
-        card_uid_indices = torch.zeros(self.config.context_size, dtype=torch.long)
-        status_uid_indices = torch.zeros(self.config.context_size, dtype=torch.long)
-        enemy_intent_indices = torch.zeros(self.config.context_size, dtype=torch.long)
-        opponent_type_indices = torch.zeros(self.config.context_size, dtype=torch.long)
-        encoded_numbers = torch.zeros(
-            (self.config.context_size, NUMBER_ENCODING_DIMS), dtype=torch.float
-        )
-
-        position = 0
-
-        def check_context_size() -> None:
-            nonlocal position
-            if position >= self.config.context_size:
-                raise ValueError(
-                    f"State representation exceeds configured context size of {self.config.context_size}"
+            # Enemy statuses
+            for status_uid, value in enemy.statuses.items():
+                status_encoding = self._encode_status(status_uid, value)
+                state_components.append(
+                    [TokenType.ENTITY_STATUS.value, enemy_idx, status_encoding]
                 )
 
-        # Encode turn number if configured
-        if self.config.include_turn_count:
-            check_context_size()
-            token_types[position] = TokenType.TURN_MARKER.value
-            encoded_numbers[position] = self._encode_number(state.num_turn)
-            position += 1
+            # Enemy intent
+            intent_type = enemy.next_move.move_type
+            intent_value = enemy.next_move.amount
+            intent_encoding = self._encode_enemy_intent(intent_type, intent_value)
+            state_components.append(
+                [TokenType.ENEMY_INTENT.value, enemy_idx, intent_encoding]
+            )
 
-        # Encode player's draw pile
-        player = state.player
-        if player is None:
-            raise ValueError("Player is not set")
+        # Deck information
+        # Draw pile
+        for card in env.player.draw_pile:
+            card_encoding = self._encode_card(card.uid)
+            state_components.append([TokenType.DRAW_PILE_CARD.value, 0, card_encoding])
 
-        for card in player.draw_pile:
-            check_context_size()
+        # Hand
+        for card_idx, card in enumerate(env.player.hand):
+            card_encoding = self._encode_card(card.uid)
+            state_components.append(
+                [TokenType.HAND_CARD.value, card_idx, card_encoding]
+            )
 
-            token_types[position] = TokenType.DRAW_PILE_CARD.value
-            card_uid_indices[position] = self.card_uid_to_idx.get(card.card_uid, 0)
-            encoded_numbers[position] = self._encode_number(card.cost)
-            position += 1
+        # Discard pile
+        for card in env.player.discard_pile:
+            card_encoding = self._encode_card(card.uid)
+            state_components.append(
+                [TokenType.DISCARD_PILE_CARD.value, 0, card_encoding]
+            )
 
-        # Encode player's discard pile
-        for card in player.discard_pile:
-            check_context_size()
+        # Exhaust pile
+        for card in env.player.exhaust_pile:
+            card_encoding = self._encode_card(card.uid)
+            state_components.append(
+                [TokenType.EXHAUST_PILE_CARD.value, 0, card_encoding]
+            )
 
-            token_types[position] = TokenType.DISCARD_PILE_CARD.value
-            card_uid_indices[position] = self.card_uid_to_idx.get(card.card_uid, 0)
-            encoded_numbers[position] = self._encode_number(card.cost)
-            position += 1
+        # Turn marker
+        turn_marker = self._convert_number_to_binary(self.current_turn)
+        state_components.append([TokenType.TURN_MARKER.value, 0, turn_marker])
 
-        # Encode player's exhaust pile (if available)
-        if hasattr(player, "exhaust_pile"):
-            for card in player.exhaust_pile:
-                check_context_size()
-
-                token_types[position] = TokenType.EXHAUST_PILE_CARD.value
-                card_uid_indices[position] = self.card_uid_to_idx.get(card.card_uid, 0)
-                encoded_numbers[position] = self._encode_number(card.cost)
-                position += 1
-
-        # Encode player's hand
-        for card_idx, card in enumerate(player.hand):
-            check_context_size()
-
-            token_types[position] = TokenType.HAND_CARD.value
-            card_uid_indices[position] = self.card_uid_to_idx.get(card.card_uid, 0)
-            # Store the card index as a number so we can reference it when playing cards
-            encoded_numbers[position] = self._encode_number(card.cost)
-            position += 1
-
-        # Encode player entity information
-        check_context_size()
-        token_types[position] = TokenType.ENTITY_HP.value
-        encoded_numbers[position] = self._encode_number(player.current_health)
-        position += 1
-
-        check_context_size()
-        token_types[position] = TokenType.ENTITY_MAX_HP.value
-        encoded_numbers[position] = self._encode_number(player.max_health)
-        position += 1
-
-        check_context_size()
-        token_types[position] = TokenType.ENTITY_ENERGY.value
-        encoded_numbers[position] = self._encode_number(player.energy)
-        position += 1
-
-        # Encode player statuses
-        for status_uid, (status, amount) in player.get_active_statuses().items():
-            check_context_size()
-
-            token_types[position] = TokenType.ENTITY_STATUS.value
-            status_uid_indices[position] = self.status_uid_to_idx.get(status_uid, 0)
-            encoded_numbers[position] = self._encode_number(amount)
-            position += 1
-
-        # Encode action history if configured
-        if self.config.include_action_history and self.state_cache.previous_actions:
-            # Limit to max_action_history most recent actions
-            recent_actions = self.state_cache.previous_actions[
-                -self.config.max_action_history :
-            ]
-
-            for action_data in recent_actions:
-                check_context_size()
-
-                # Unpack the tuple manually but only take what we need
-                action_type = action_data[0]  # ActionType
-
-                token_types[position] = TokenType.PLAYER_ACTION.value
-                if action_type == ActionType.PLAY_CARD:
-                    # Handle PLAY_CARD action
-                    card_idx_opt = action_data[1]  # Optional[int]
-                    if card_idx_opt is not None:
-                        card_idx = int(card_idx_opt)  # Now it's just int
-                        if 0 <= card_idx < len(player.hand):
-                            card = player.hand[card_idx]
-                            card_uid_indices[position] = self.card_uid_to_idx.get(
-                                card.card_uid, 0
-                            )
-
-                # Store the action type, card index, and target index
-                action_value = action_type.value
-                encoded_numbers[position] = self._encode_number(action_value)
-                position += 1
-
-        # Encode enemies
-        if state.opponents is None:
-            raise ValueError("Opponents not set")
-
-        for enemy_idx, enemy in enumerate(state.opponents):
-            if enemy.current_health > 0:  # Check if enemy is alive using current_health
-                # Enemy type
-                check_context_size()
-                opponent_type_indices[position] = self.opponent_type_to_idx.get(
-                    enemy.opponent_type_uid, 0
-                )
-                position += 1
-
-                # Enemy HP
-                check_context_size()
-                token_types[position] = TokenType.ENTITY_HP.value
-                encoded_numbers[position] = self._encode_number(enemy.current_health)
-                position += 1
-
-                # Enemy Max HP
-                check_context_size()
-                token_types[position] = TokenType.ENTITY_MAX_HP.value
-                encoded_numbers[position] = self._encode_number(enemy.max_health)
-                position += 1
-
-                # Enemy intent
-                if enemy.next_move:
-                    check_context_size()
-                    token_types[position] = TokenType.ENEMY_INTENT.value
-                    enemy_intent_indices[position] = self.enemy_intent_to_idx.get(
-                        enemy.next_move.move_type, 0
-                    )
-                    if enemy.next_move.amount is not None:
-                        encoded_numbers[position] = self._encode_number(
-                            enemy.next_move.amount
-                        )
-                    position += 1
-
-                # Enemy statuses
-                for status_uid, (status, amount) in enemy.get_active_statuses().items():
-                    check_context_size()
-
-                    token_types[position] = TokenType.ENTITY_STATUS.value
-                    status_uid_indices[position] = self.status_uid_to_idx.get(
-                        status_uid, 0
-                    )
-                    encoded_numbers[position] = self._encode_number(amount)
-                    position += 1
-
-        return (
-            token_types,
-            card_uid_indices,
-            status_uid_indices,
-            enemy_intent_indices,
-            opponent_type_indices,
-            encoded_numbers,
-        )
-
-    def record_action(
-        self,
-        state_tensor: Tuple[
-            torch.Tensor,
-            torch.Tensor,
-            torch.Tensor,
-            torch.Tensor,
-            torch.Tensor,
-            torch.Tensor,
-        ],
-        action_type: ActionType,
-        card_idx: Optional[int] = None,
-        target_idx: Optional[int] = None,
-        reward: float = 0.0,
-        turn_number: int = 0,
-    ) -> None:
-        """
-        Record an action taken in the given state.
-
-        Args:
-            state_tensor: The tensor representation of the state before the action.
-            action_type: The type of action taken.
-            card_idx: The index of the card played (if applicable).
-            target_idx: The index of the target for the card (if applicable).
-            reward: The reward received for taking this action.
-            turn_number: The current turn number.
-        """
-        if self.config.mode != TensorizerMode.RECORD:
-            return
-
-        # Update state cache with this action
-        self.state_cache.record_action(action_type, card_idx, target_idx)
-
-        step = PlaythroughStep(
-            state=state_tensor,
-            action_type=action_type,
-            card_idx=card_idx,
-            target_idx=target_idx,
-            reward=reward,
-            turn_number=turn_number,
-        )
-        self.playthrough_steps.append(step)
-
-    def get_playthrough_data(self) -> List[PlaythroughStep]:
-        """Get the recorded playthrough data."""
-        return self.playthrough_steps
-
-    def clear_playthrough_data(self) -> None:
-        """Clear the recorded playthrough data."""
-        self.playthrough_steps = []
-        self.state_cache = GameStateCache()
+        # Convert to tensor
+        return torch.tensor(state_components, dtype=torch.float32)
 
     def record_play_card(
         self,
-        state: DeckbuilderSingleBattleEnv,
+        env: DeckbuilderSingleBattleEnv,
         card_idx: int,
         target_idx: int,
-        reward: float = 0.0,
+        reward: float,
     ) -> None:
         """
-        Record a 'play card' action.
+        Logs a tensorized record for a card play action.
 
         Args:
-            state: The current game state.
-            card_idx: The index of the card played.
-            target_idx: The index of the target.
+            env: The DeckbuilderSingleBattleEnv instance.
+            card_idx: The index of the card in the player's hand.
+            target_idx: The index of the target (0 for player, 1+ for enemies).
             reward: The reward received for this action.
         """
-        if self.config.mode != TensorizerMode.RECORD:
-            return
+        state_tensor = self.tensorize(env)
 
-        state_tensor = self.tensorize(state)
+        # Create action tensor
+        action_tensor = [
+            TokenType.PLAYER_ACTION.value,
+            ActionType.PLAY_CARD.value,
+            card_idx,
+            target_idx,
+            self._convert_number_to_binary(
+                int(reward * 100)
+            ),  # Scale reward for better precision
+        ]
+
+        # Record the action
         self.record_action(
-            state_tensor=state_tensor,
-            action_type=ActionType.PLAY_CARD,
-            card_idx=card_idx,
-            target_idx=target_idx,
-            reward=reward,
-            turn_number=state.num_turn,
+            state_tensor, ActionType.PLAY_CARD, reward, self.current_turn
         )
 
-    def record_end_turn(
-        self, state: DeckbuilderSingleBattleEnv, reward: float = 0.0
+    def record_end_turn(self, env: DeckbuilderSingleBattleEnv, reward: float) -> None:
+        """
+        Logs a tensorized record for ending a turn.
+
+        Args:
+            env: The DeckbuilderSingleBattleEnv instance.
+            reward: The reward received for this action.
+        """
+        state_tensor = self.tensorize(env)
+
+        # Record the action
+        self.record_action(state_tensor, ActionType.END_TURN, reward, self.current_turn)
+
+        # Increment turn counter
+        self.current_turn += 1
+
+    def record_action(
+        self,
+        state_tensor: torch.Tensor,
+        action_type: ActionType,
+        reward: float,
+        turn_number: int,
     ) -> None:
         """
-        Record an 'end turn' action.
+        Records a generic action along with the tensorized state.
 
         Args:
-            state: The current game state.
+            state_tensor: The tensorized state.
+            action_type: The type of action being performed.
             reward: The reward received for this action.
+            turn_number: The current turn number.
         """
-        if self.config.mode != TensorizerMode.RECORD:
-            return
+        # Create record
+        record = {
+            "state": state_tensor,
+            "action_type": action_type.value,
+            "reward": reward,
+            "turn": turn_number,
+        }
 
-        state_tensor = self.tensorize(state)
-        self.record_action(
-            state_tensor=state_tensor,
-            action_type=ActionType.END_TURN,
-            reward=reward,
-            turn_number=state.num_turn,
-        )
+        # Add to records
+        self.tensor_records.append(record)
 
     def record_enemy_action(
         self,
-        state: DeckbuilderSingleBattleEnv,
+        env: DeckbuilderSingleBattleEnv,
         enemy_idx: int,
         move_type: NextMoveType,
-        amount: Optional[int] = None,
-        reward: float = 0.0,
+        amount: int,
+        reward: float,
     ) -> None:
         """
-        Record an enemy action.
+        Logs enemy actions with the corresponding tensorized game state.
 
         Args:
-            state: The current environment state.
-            enemy_idx: The index of the enemy taking the action.
-            move_type: The type of move the enemy is making.
-            amount: The amount associated with the move (e.g., attack damage).
-            reward: The reward received for this action.
+            env: The DeckbuilderSingleBattleEnv instance.
+            enemy_idx: The index of the enemy performing the action.
+            move_type: The type of move the enemy is performing.
+            amount: The amount/value associated with the move.
+            reward: The reward (typically negative for player) for this enemy action.
         """
-        if self.config.mode != TensorizerMode.RECORD:
-            return
+        state_tensor = self.tensorize(env)
 
-        # Store enemy actions in the state cache but don't create playthrough steps for them
-        # This is because we focus on the player's decision points for RL
-        # But tracking enemy actions helps with understanding the game state
-        self.state_cache.record_action(
-            ActionType.NO_OP,  # Use NO_OP as a placeholder for enemy actions
-            card_idx=enemy_idx,  # Store enemy index here
-            target_idx=self.enemy_intent_to_idx.get(
-                move_type, 0
-            ),  # Store move type in target_idx
-        )
+        # Create enemy action tensor
+        enemy_action = [
+            TokenType.ENEMY_ACTION.value,
+            enemy_idx,
+            (
+                SUPPORTED_ENEMY_INTENT_TYPES.index(move_type)
+                if move_type in SUPPORTED_ENEMY_INTENT_TYPES
+                else -1
+            ),
+            self._convert_number_to_binary(amount),
+            self._convert_number_to_binary(
+                int(reward * 100)
+            ),  # Scale reward for better precision
+        ]
+
+        # Record the action
+        record = {
+            "state": state_tensor,
+            "action_type": ActionType.ENEMY_ACTION.value,
+            "enemy_idx": enemy_idx,
+            "move_type": (
+                move_type.name if hasattr(move_type, "name") else str(move_type)
+            ),
+            "amount": amount,
+            "reward": reward,
+            "turn": self.current_turn,
+        }
+
+        self.tensor_records.append(record)
 
     def save_playthrough(self, filename: str) -> None:
         """
-        Save the recorded playthrough data to a file.
+        Serializes and saves the tensorized playthrough data to a binary file.
 
         Args:
-            filename: The path to save the data to.
+            filename: The name of the file to save the data to.
         """
-        torch.save(self.playthrough_steps, filename)
+        # Create header
+        header = {
+            "version": self.version,
+            "timestamp": time.time(),
+            "num_records": len(self.tensor_records),
+            "tensor_size": (
+                self.tensor_records[0]["state"].size() if self.tensor_records else (0,)
+            ),
+            "supported_cards": [card.name for card in SUPPORTED_CARDS_UIDs],
+            "supported_statuses": [status.name for status in SUPPORTED_STATUS_UIDs],
+            "supported_enemy_intents": [
+                intent.name for intent in SUPPORTED_ENEMY_INTENT_TYPES
+            ],
+        }
 
-    def load_playthrough(self, filename: str) -> None:
-        """
-        Load playthrough data from a file.
+        # Save data
+        with open(filename, "wb") as f:
+            # Write header size first (as 4 bytes)
+            header_bytes = json.dumps(header).encode("utf-8")
+            header_size = len(header_bytes)
+            f.write(header_size.to_bytes(4, byteorder="little"))
 
-        Args:
-            filename: The path to load the data from.
+            # Write header
+            f.write(header_bytes)
+
+            # Write each tensor record
+            for record in self.tensor_records:
+                # Convert tensor to numpy and then to bytes
+                state_bytes = record["state"].numpy().tobytes()
+
+                # Write metadata
+                metadata = {
+                    "action_type": record["action_type"],
+                    "reward": record["reward"],
+                    "turn": record["turn"],
+                }
+
+                # Add enemy-specific fields if this is an enemy action
+                if record["action_type"] == ActionType.ENEMY_ACTION.value:
+                    metadata["enemy_idx"] = record["enemy_idx"]
+                    metadata["move_type"] = record["move_type"]
+                    metadata["amount"] = record["amount"]
+
+                metadata_bytes = json.dumps(metadata).encode("utf-8")
+
+                # Write metadata size
+                f.write(len(metadata_bytes).to_bytes(4, byteorder="little"))
+
+                # Write metadata
+                f.write(metadata_bytes)
+
+                # Write tensor size
+                f.write(len(state_bytes).to_bytes(8, byteorder="little"))
+
+                # Write tensor data
+                f.write(state_bytes)
+
+    def get_playthrough_data(self) -> List[Any]:
         """
-        self.playthrough_steps = torch.load(filename)
+        Returns the in-memory tensor records for further processing or inspection.
+
+        Returns:
+            The list of tensor records.
+        """
+        return self.tensor_records

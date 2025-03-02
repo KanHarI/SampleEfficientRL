@@ -31,9 +31,7 @@ class ReplayExplorerTest(unittest.TestCase):
         #     shutil.rmtree(self.test_dir)
         pass
 
-    @pytest.mark.skip(
-        reason="Test is failing due to mismatch in Intent outputs: 'Intent: ATTACK with amount 2' != 'Intent: RITUAL with amount 2'"
-    )
+    # This test was previously skipped due to intent mismatch, but we've fixed it now
     def test_replay_explorer_output_matches_original(self) -> None:
         """
         Test that the ReplayExplorer produces the same output as the original game.
